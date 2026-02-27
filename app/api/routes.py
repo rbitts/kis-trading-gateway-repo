@@ -2,15 +2,15 @@ from fastapi import APIRouter, Header, HTTPException
 
 from app.schemas.order import OrderAccepted, OrderRequest
 from app.services.order_queue import order_queue
-from app.services.quote_cache import quote_cache, seed_demo_quote
-from app.services.session_state import session_state
+from app.services.quote_cache import quote_cache, quote_ingest_worker, seed_demo_quote
+from app.services.session_state import session_orchestrator
 
 router = APIRouter()
 
 
 @router.get('/session/status')
 def get_session_status():
-    return session_state.model_dump()
+    return session_orchestrator.status().model_dump()
 
 
 @router.get('/quotes/{symbol}')
@@ -36,3 +36,13 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
     if not idempotency_key:
         raise HTTPException(status_code=400, detail='Idempotency-Key header required')
     return order_queue.enqueue(req, idempotency_key)
+
+
+@router.get('/metrics/quote')
+def quote_metrics():
+    return quote_ingest_worker.metrics()
+
+
+@router.get('/metrics/order')
+def order_metrics():
+    return order_queue.metrics()
