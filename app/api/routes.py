@@ -52,6 +52,18 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
     return order_queue.enqueue(req, idempotency_key)
 
 
+@router.get('/orders/{order_id}')
+def get_order_status(order_id: str):
+    job = order_queue.jobs.get(order_id)
+    if not job:
+        raise HTTPException(status_code=404, detail='order not found')
+    return {
+        'order_id': job['order_id'],
+        'status': job['status'],
+        'error': job['error'],
+        'updated_at': job['updated_at'],
+    }
+
 
 @router.get('/metrics/quote')
 def quote_metrics():
