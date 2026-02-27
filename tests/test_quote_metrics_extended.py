@@ -13,6 +13,7 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
         quote_ingest_worker.upserts = 0
         quote_ingest_worker.ws_connected = False
         quote_ingest_worker.last_ws_message_ts = None
+        quote_ingest_worker.last_ws_heartbeat_ts = None
 
         app.state.quote_gateway_service.rest_fallbacks = 0
         app.state.quote_gateway_service.market_open_checker = lambda: False
@@ -30,10 +31,12 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
 
         self.assertIn('rest_fallbacks', payload)
         self.assertIn('ws_connected', payload)
+        self.assertIn('ws_heartbeat_fresh', payload)
         self.assertIn('last_ws_message_ts', payload)
 
         self.assertEqual(payload['rest_fallbacks'], 0)
         self.assertFalse(payload['ws_connected'])
+        self.assertFalse(payload['ws_heartbeat_fresh'])
         self.assertIsNone(payload['last_ws_message_ts'])
 
     def test_quote_metrics_updates_after_ws_and_rest_fallback(self):
@@ -48,7 +51,19 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
         self.assertEqual(payload['ws_messages'], 1)
         self.assertEqual(payload['upserts'], 1)
         self.assertTrue(payload['ws_connected'])
+        self.assertTrue(payload['ws_heartbeat_fresh'])
         self.assertEqual(payload['last_ws_message_ts'], 1700000000)
+
+    def test_quote_metrics_splits_ws_connection_and_heartbeat_freshness(self):
+        quote_ingest_worker.ws_connected = True
+        quote_ingest_worker.last_ws_heartbeat_ts = 100
+        quote_ingest_worker.ws_heartbeat_timeout_sec = 5
+
+        # stale heartbeat (now=200) but connection flag remains true
+        payload = quote_ingest_worker.metrics(now=200)
+
+        self.assertTrue(payload['ws_connected'])
+        self.assertFalse(payload['ws_heartbeat_fresh'])
 
 
 if __name__ == '__main__':
