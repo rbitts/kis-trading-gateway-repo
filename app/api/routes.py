@@ -89,7 +89,12 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
     if not risk_result['ok']:
         raise HTTPException(status_code=400, detail=risk_result['reason'])
 
-    return order_queue.enqueue(req, idempotency_key)
+    try:
+        return order_queue.enqueue(req, idempotency_key)
+    except ValueError as exc:
+        if str(exc) == 'IDEMPOTENCY_KEY_BODY_MISMATCH':
+            raise HTTPException(status_code=409, detail='IDEMPOTENCY_KEY_BODY_MISMATCH') from exc
+        raise
 
 
 @router.get('/orders/{order_id}')
