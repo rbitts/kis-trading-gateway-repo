@@ -30,13 +30,17 @@ class QuoteCache:
 class QuoteIngestWorker:
     """MVP skeleton: websocket payload hook -> cache update + freshness calc."""
 
-    def __init__(self, cache: QuoteCache, stale_after_sec: int = 5) -> None:
+    def __init__(self, cache: QuoteCache, stale_after_sec: int = 5, ws_heartbeat_timeout_sec: int = 10) -> None:
         self.cache = cache
         self.stale_after_sec = stale_after_sec
+        self.ws_heartbeat_timeout_sec = ws_heartbeat_timeout_sec
         self.ws_messages = 0
         self.upserts = 0
         self.ws_connected = False
         self.last_ws_message_ts: int | None = None
+        self.last_ws_heartbeat_ts: int | None = None
+        self.ws_last_error: str | None = None
+        self.ws_reconnect_count = 0
 
     def on_ws_message(self, payload: dict) -> QuoteSnapshot:
         now = int(time.time())
@@ -55,6 +59,7 @@ class QuoteIngestWorker:
         self.upserts += 1
         self.ws_connected = True
         self.last_ws_message_ts = snapshot.ts
+        self.last_ws_heartbeat_ts = now
         return snapshot
 
     def refresh_freshness(self, now: int | None = None) -> None:
@@ -64,17 +69,27 @@ class QuoteIngestWorker:
             row.freshness_sec = age
             row.state = "HEALTHY" if age <= self.stale_after_sec else "STALE"
 
-    def metrics(self) -> dict:
-        self.refresh_freshness()
+    def metrics(self, now: int | None = None) -> dict:
+        ref = int(time.time()) if now is None else now
+        self.refresh_freshness(now=ref)
         rows = self.cache.list_all()
         stale = sum(1 for r in rows if r.state == "STALE")
+
+        heartbeat_fresh = False
+        if self.last_ws_heartbeat_ts is not None:
+            heartbeat_fresh = (ref - self.last_ws_heartbeat_ts) <= self.ws_heartbeat_timeout_sec
+
         return {
             "cached_symbols": len(rows),
             "ws_messages": self.ws_messages,
             "upserts": self.upserts,
             "stale_symbols": stale,
             "ws_connected": self.ws_connected,
+            "ws_heartbeat_fresh": heartbeat_fresh,
             "last_ws_message_ts": self.last_ws_message_ts,
+            "last_ws_heartbeat_ts": self.last_ws_heartbeat_ts,
+            "ws_last_error": self.ws_last_error,
+            "ws_reconnect_count": self.ws_reconnect_count,
         }
 
 
