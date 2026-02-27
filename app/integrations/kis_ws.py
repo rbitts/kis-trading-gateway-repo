@@ -102,6 +102,8 @@ class KisWsClient:
         self.custtype = custtype
         self.tr_type = tr_type
         self.content_type = content_type
+        self.last_error: str | None = None
+        self.reconnect_count = 0
 
     def start(self) -> None:
         self.running = True
@@ -133,3 +135,40 @@ class KisWsClient:
         if self._on_message is not None:
             self._on_message(quote)
         return quote
+
+    def run_with_reconnect(
+        self,
+        *,
+        connect_once: Callable[[], None],
+        sleep_fn: Callable[[float], None] = time.sleep,
+        max_retries: int = 5,
+        backoff_base_sec: float = 1.0,
+        backoff_cap_sec: float = 30.0,
+    ) -> bool:
+        """Run connect loop with exponential backoff. Returns True on success."""
+        if max_retries < 1:
+            return False
+
+        self.running = True
+        self.last_error = None
+        self.reconnect_count = 0
+
+        for attempt in range(max_retries):
+            if not self.running:
+                return False
+
+            try:
+                connect_once()
+                self.last_error = None
+                return True
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.reconnect_count += 1
+
+                if not self.running:
+                    return False
+
+                backoff = min(backoff_base_sec * (2**attempt), backoff_cap_sec)
+                sleep_fn(backoff)
+
+        return False
