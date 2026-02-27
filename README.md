@@ -18,6 +18,34 @@ pip install -e .
 uvicorn app.main:app --reload --port 8890
 ```
 
+## KIS Quote WS/REST 운영 요약
+
+### Env 설정
+```bash
+export KIS_APP_KEY="..."
+export KIS_APP_SECRET="..."
+export KIS_ACCOUNT_NO="12345678-01"
+export KIS_ENV="mock"  # mock | live
+```
+
+### Startup/Lifecycle 점검
+```bash
+curl -s http://127.0.0.1:8890/v1/session/status | jq
+curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
+```
+- startup 시 WS client start, shutdown 시 stop 수행
+- `rest_fallbacks`, `ws_connected`, `last_ws_message_ts`를 운영 지표로 확인
+
+### 장중/장외 동작 기대치
+- 장중(09:00~15:30 KST): WS fresh면 `kis-ws`, stale/미수신이면 `kis-rest`
+- 장외: `kis-rest`
+
+### 장애 대응 핵심
+- WS 끊김: metrics 확인 → 프로세스 재기동 → WS 지표 회복 확인
+- REST rate limit: 조회 빈도 축소, 백오프/재시도, 한도/권한 점검
+
+상세 운영 절차: `docs/ops/kis-quote-runbook.md`
+
 ## Quick API Check
 ```bash
 # session state
