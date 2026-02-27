@@ -7,7 +7,7 @@ from app.main import app
 from app.schemas.order import OrderRequest
 from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_cache, quote_ingest_worker
-from app.services.session_state import SessionOrchestrator
+from app.services.session_state import SessionOrchestrator, session_orchestrator
 
 
 class Iteration1Test(unittest.TestCase):
@@ -26,6 +26,14 @@ class Iteration1Test(unittest.TestCase):
             "sent": 0,
             "rejected": 0,
         }
+
+        with session_orchestrator._lock:
+            session_orchestrator._state.owner = None
+            session_orchestrator._state.state = 'IDLE'
+            session_orchestrator._state.source = 'test-setup'
+            session_orchestrator._state.lease_expires_at = None
+        session_orchestrator.acquire('gateway', ttl_sec=3600, source='test-setup')
+
         self.client = TestClient(app)
 
     def test_session_orchestrator_single_owner_lock(self):
@@ -33,6 +41,32 @@ class Iteration1Test(unittest.TestCase):
         self.assertTrue(orchestrator.acquire("owner-a", ttl_sec=60))
         self.assertFalse(orchestrator.acquire("owner-b", ttl_sec=60))
         self.assertEqual(orchestrator.status().owner, "owner-a")
+
+    def test_reconnect_requires_operator_token_header(self):
+        r = self.client.post('/v1/session/reconnect')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()['detail'], 'X-Operator-Token header required')
+
+    def test_reconnect_success_returns_snapshot(self):
+        r = self.client.post('/v1/session/reconnect', headers={'X-Operator-Token': 'op-token'})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body['success'])
+        self.assertEqual(body['owner'], 'gateway')
+        self.assertEqual(body['state'], 'ACTIVE')
+        self.assertEqual(body['source'], 'reconnect-api')
+
+    def test_reconnect_acquire_failure_still_returns_current_snapshot(self):
+        session_orchestrator.release('gateway', source='test')
+        session_orchestrator.acquire('owner-b', ttl_sec=60, source='test-holder')
+
+        r = self.client.post('/v1/session/reconnect', headers={'X-Operator-Token': 'op-token'})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertFalse(body['success'])
+        self.assertEqual(body['owner'], 'owner-b')
+        self.assertEqual(body['state'], 'ACTIVE')
+        self.assertEqual(body['source'], 'test-holder')
 
     def test_quote_ws_hook_and_freshness(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 71200, "ts": int(time.time()) - 10})
@@ -66,6 +100,7 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(job["order_id"], accepted.order_id)
         self.assertEqual(job["status"], "REJECTED")
         self.assertEqual(job["error"], "risk-check-failed")
+
 
     def test_metrics_endpoints(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 70100})
