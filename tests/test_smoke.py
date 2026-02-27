@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime as real_datetime
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -12,9 +14,11 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['symbol'], '005930')
 
-        r2 = c.post('/v1/orders', headers={'Idempotency-Key': 'k1'}, json={
-            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1
-        })
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r2 = c.post('/v1/orders', headers={'Idempotency-Key': 'k1'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1
+            })
         self.assertEqual(r2.status_code, 200)
         self.assertEqual(r2.json()['status'], 'ACCEPTED')
 
