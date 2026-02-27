@@ -38,6 +38,8 @@ class Iteration1Test(unittest.TestCase):
         session_orchestrator.acquire('gateway', ttl_sec=3600, source='test-setup')
 
         self.client = TestClient(app)
+        app.state.quote_gateway_service.rest_fallbacks = 0
+        app.state.quote_gateway_service.market_open_checker = lambda: False
 
     def test_session_orchestrator_single_owner_lock(self):
         orchestrator = SessionOrchestrator()
@@ -70,6 +72,27 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(body['owner'], 'owner-b')
         self.assertEqual(body['state'], 'ACTIVE')
         self.assertEqual(body['source'], 'test-holder')
+
+
+    def test_quote_endpoint_uses_quote_gateway_service(self):
+        app.state.quote_gateway_service.market_open_checker = lambda: False
+
+        r = self.client.get('/v1/quotes/005930')
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['symbol'], '005930')
+        self.assertEqual(r.json()['source'], 'kis-rest')
+
+    def test_quotes_list_endpoint_uses_quote_gateway_service(self):
+        app.state.quote_gateway_service.market_open_checker = lambda: False
+
+        r = self.client.get('/v1/quotes', params={'symbols': '005930,000660'})
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(len(body), 2)
+        self.assertEqual([row['symbol'] for row in body], ['005930', '000660'])
+        self.assertTrue(all(row['source'] == 'kis-rest' for row in body))
 
     def test_quote_ws_hook_and_freshness(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 71200, "ts": int(time.time()) - 10})
