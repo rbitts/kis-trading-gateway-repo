@@ -102,6 +102,25 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(job["error"], "risk-check-failed")
 
 
+    def test_order_status_lookup_success(self):
+        req = OrderRequest(account_id="A1", symbol="005930", side="BUY", qty=1)
+        accepted = order_queue.enqueue(req, "idem-status-1")
+
+        r = self.client.get(f"/v1/orders/{accepted.order_id}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {
+            "order_id": accepted.order_id,
+            "status": "QUEUED",
+            "error": None,
+            "updated_at": order_queue.jobs[accepted.order_id]["updated_at"],
+        })
+
+    def test_order_status_lookup_not_found(self):
+        r = self.client.get('/v1/orders/ord_missing')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json()['detail'], 'order not found')
+
+
     def test_metrics_endpoints(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 70100})
         self.client.post('/v1/orders', headers={'Idempotency-Key': 'm1'}, json={
