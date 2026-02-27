@@ -20,6 +20,7 @@ class Iteration1Test(unittest.TestCase):
 
         order_queue.queue.clear()
         order_queue.idem.clear()
+        order_queue.idem_body_hash.clear()
         order_queue.jobs.clear()
         order_queue.metrics_counters = {
             "accepted": 0,
@@ -85,6 +86,29 @@ class Iteration1Test(unittest.TestCase):
         second = order_queue.enqueue(req, "idem-1")
         self.assertEqual(first.order_id, second.order_id)
         self.assertEqual(order_queue.metrics()["deduplicated"], 1)
+
+    def test_order_idempotency_same_key_same_body_deduplicates(self):
+        with patch('app.api.routes.check_risk', return_value={'ok': True, 'reason': None}):
+            body = {'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000}
+            r1 = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-same'}, json=body)
+            r2 = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-same'}, json=body)
+
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r1.json()['order_id'], r2.json()['order_id'])
+
+    def test_order_idempotency_same_key_different_body_returns_409(self):
+        with patch('app.api.routes.check_risk', return_value={'ok': True, 'reason': None}):
+            r1 = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-diff'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+            })
+            r2 = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-diff'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 2, 'price': 70000
+            })
+
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 409)
+        self.assertEqual(r2.json(), {'detail': 'IDEMPOTENCY_KEY_BODY_MISMATCH'})
 
     def test_order_worker_state_transition_sent(self):
         req = OrderRequest(account_id="A1", symbol="005930", side="BUY", qty=1)
@@ -179,6 +203,38 @@ class Iteration1Test(unittest.TestCase):
 
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.json(), {'detail': 'OUT_OF_TRADING_WINDOW'})
+
+
+    def test_order_create_same_idempotency_key_same_body_returns_same_order_id(self):
+        payload = {
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+        }
+
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            first = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-hash-same'}, json=payload)
+            second = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-hash-same'}, json=payload)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()['order_id'], second.json()['order_id'])
+
+    def test_order_create_same_idempotency_key_different_body_returns_409(self):
+        first_payload = {
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+        }
+        second_payload = {
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 2, 'price': 70000
+        }
+
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            first = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-hash-diff'}, json=first_payload)
+            second = self.client.post('/v1/orders', headers={'Idempotency-Key': 'idem-hash-diff'}, json=second_payload)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.json(), {'detail': 'IDEMPOTENCY_KEY_BODY_MISMATCH'})
 
     def test_order_create_accepts_when_risk_passes(self):
         with patch('app.api.routes.datetime') as mock_datetime:
