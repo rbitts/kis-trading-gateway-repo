@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 import uuid
 from collections import deque
@@ -11,6 +13,7 @@ class OrderQueue:
     def __init__(self) -> None:
         self.queue: deque[str] = deque()
         self.idem: dict[str, OrderAccepted] = {}
+        self.idem_body_hash: dict[str, str] = {}
         self.jobs: dict[str, dict] = {}
         self.metrics_counters = {
             "accepted": 0,
@@ -21,7 +24,11 @@ class OrderQueue:
         }
 
     def enqueue(self, req: OrderRequest, idem_key: str) -> OrderAccepted:
+        body_hash = self._hash_request(req)
+
         if idem_key in self.idem:
+            if self.idem_body_hash.get(idem_key) != body_hash:
+                raise ValueError("IDEMPOTENCY_KEY_BODY_MISMATCH")
             self.metrics_counters["deduplicated"] += 1
             return self.idem[idem_key]
 
@@ -37,6 +44,7 @@ class OrderQueue:
         }
         self.queue.append(oid)
         self.idem[idem_key] = accepted
+        self.idem_body_hash[idem_key] = body_hash
         self.metrics_counters["accepted"] += 1
         return accepted
 
@@ -72,6 +80,10 @@ class OrderQueue:
             "queue_depth": len(self.queue),
             **self.metrics_counters,
         }
+
+    def _hash_request(self, req: OrderRequest) -> str:
+        payload = json.dumps(req.model_dump(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 order_queue = OrderQueue()
