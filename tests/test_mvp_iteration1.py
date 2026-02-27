@@ -135,6 +135,40 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(quote_metrics.json()["cached_symbols"], 1)
         self.assertEqual(order_metrics.json()["accepted"], 1)
 
+    def test_risk_check_invalid_qty(self):
+        r = self.client.post('/v1/risk/check', json={
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 0
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': False, 'reason': 'INVALID_QTY'})
+
+    def test_risk_check_invalid_price(self):
+        r = self.client.post('/v1/risk/check', json={
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 0
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': False, 'reason': 'INVALID_PRICE'})
+
+    def test_risk_check_notional_limit_exceeded(self):
+        r = self.client.post('/v1/risk/check', json={
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 200, 'price': 70000
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': False, 'reason': 'NOTIONAL_LIMIT_EXCEEDED'})
+
+    def test_risk_check_trading_window_or_outside_window(self):
+        r = self.client.post('/v1/risk/check', json={
+            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+        })
+        self.assertEqual(r.status_code, 200)
+
+        body = r.json()
+        if body.get('ok') is True:
+            self.assertIsNone(body.get('reason'))
+        else:
+            self.assertEqual(body.get('ok'), False)
+            self.assertEqual(body.get('reason'), 'OUT_OF_TRADING_WINDOW')
+
 
 if __name__ == '__main__':
     unittest.main()
