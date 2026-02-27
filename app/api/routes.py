@@ -38,7 +38,12 @@ def reconnect_session(x_operator_token: str | None = Header(default=None, alias=
 @router.get('/quotes/{symbol}')
 def get_quote(symbol: str, request: Request):
     service = request.app.state.quote_gateway_service
-    row = service.get_quote(symbol)
+    try:
+        row = service.get_quote(symbol)
+    except RuntimeError as exc:
+        if str(exc) == 'REST_RATE_LIMIT_COOLDOWN':
+            raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
+        raise
     return row.model_dump()
 
 
@@ -46,7 +51,15 @@ def get_quote(symbol: str, request: Request):
 def get_quotes(symbols: str, request: Request):
     service = request.app.state.quote_gateway_service
     req = [s.strip() for s in symbols.split(',') if s.strip()]
-    return [service.get_quote(s).model_dump() for s in req]
+    out = []
+    for s in req:
+        try:
+            out.append(service.get_quote(s).model_dump())
+        except RuntimeError as exc:
+            if str(exc) == 'REST_RATE_LIMIT_COOLDOWN':
+                raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
+            raise
+    return out
 
 
 @router.post('/risk/check')
