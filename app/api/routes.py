@@ -1,11 +1,19 @@
+from datetime import datetime, time
+
 from fastapi import APIRouter, Header, HTTPException
 
 from app.schemas.order import OrderAccepted, OrderRequest
+from app.schemas.risk import RiskCheckRequest
 from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_cache, quote_ingest_worker, seed_demo_quote
 from app.services.session_state import session_orchestrator
 
 router = APIRouter()
+
+_DEFAULT_PRICE = 70000
+_NOTIONAL_CAP = 10000000
+_TRADING_START = time(9, 0)
+_TRADING_END = time(15, 30)
 
 
 @router.get('/session/status')
@@ -43,6 +51,25 @@ def get_quotes(symbols: str):
         if not quote_cache.get(s):
             seed_demo_quote(s)
     return [r.model_dump() for r in quote_cache.list_many(req)]
+
+
+@router.post('/risk/check')
+def check_risk(req: RiskCheckRequest):
+    if req.qty < 1:
+        return {'ok': False, 'reason': 'INVALID_QTY'}
+
+    if req.price is not None and req.price <= 0:
+        return {'ok': False, 'reason': 'INVALID_PRICE'}
+
+    effective_price = req.price if req.price is not None else _DEFAULT_PRICE
+    if req.qty * effective_price > _NOTIONAL_CAP:
+        return {'ok': False, 'reason': 'NOTIONAL_LIMIT_EXCEEDED'}
+
+    now_time = datetime.now().time().replace(tzinfo=None)
+    if not (_TRADING_START <= now_time <= _TRADING_END):
+        return {'ok': False, 'reason': 'OUT_OF_TRADING_WINDOW'}
+
+    return {'ok': True, 'reason': None}
 
 
 @router.post('/orders', response_model=OrderAccepted)
