@@ -34,6 +34,7 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 정상 기준:
 - `/v1/session/status` 응답 OK
 - `/v1/metrics/quote`에 최소 키 존재: `cached_symbols`, `ws_messages`, `rest_fallbacks`, `ws_connected`, `last_ws_message_ts`
+- 추가 키 확인: `ws_heartbeat_fresh`, `ws_reconnect_count`, `ws_last_error`
 
 종료 동작:
 - 앱 shutdown 시 WS client stop이 호출되도록 구현됨
@@ -73,12 +74,23 @@ curl -s "http://127.0.0.1:8890/v1/metrics/quote" | jq
 ### B. REST rate limit / 실패
 증상:
 - 장외 또는 fallback 시 quote 조회 실패/지연
+- 429 이후 API가 `REST_RATE_LIMIT_COOLDOWN`(HTTP 503) 반환
 
 대응:
 1. 호출 빈도 축소(필요 심볼만 조회)
 2. 짧은 재시도 간격 대신 백오프 적용(운영 레이어)
 3. 일시 장애 시 마지막 캐시값 + 상태 모니터링
 4. 지속 실패 시 KIS 앱키 한도/권한/네트워크 점검
+
+### C. 인증 token 이슈
+증상:
+- REST 호출 전 토큰 발급 실패 또는 토큰 만료 후 연속 실패
+
+대응:
+1. KIS 앱키/시크릿 및 `KIS_ENV`(mock/live) 값 재검증
+2. 토큰(token) 재발급 로그 확인
+3. 발급 endpoint 접근성(방화벽/DNS/TLS) 점검
+4. 복구 전까지 WS 지표(`ws_connected`, `last_ws_message_ts`) 기반 상태 판단
 
 ## 5) 회귀 검증
 
