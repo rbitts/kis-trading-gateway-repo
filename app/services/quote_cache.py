@@ -35,6 +35,8 @@ class QuoteIngestWorker:
         self.stale_after_sec = stale_after_sec
         self.ws_messages = 0
         self.upserts = 0
+        self.ws_connected = False
+        self.last_ws_message_ts: int | None = None
 
     def on_ws_message(self, payload: dict) -> QuoteSnapshot:
         now = int(time.time())
@@ -51,6 +53,8 @@ class QuoteIngestWorker:
         self.cache.upsert(snapshot)
         self.ws_messages += 1
         self.upserts += 1
+        self.ws_connected = True
+        self.last_ws_message_ts = snapshot.ts
         return snapshot
 
     def refresh_freshness(self, now: int | None = None) -> None:
@@ -69,6 +73,8 @@ class QuoteIngestWorker:
             "ws_messages": self.ws_messages,
             "upserts": self.upserts,
             "stale_symbols": stale,
+            "ws_connected": self.ws_connected,
+            "last_ws_message_ts": self.last_ws_message_ts,
         }
 
 
