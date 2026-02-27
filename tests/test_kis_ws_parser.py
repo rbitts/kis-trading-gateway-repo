@@ -42,6 +42,39 @@ class TestKisWsParser(unittest.TestCase):
         self.assertEqual(parsed["source"], "kis-ws-stream")
         self.assertEqual(parsed["ts"], 1700000000)
 
+    def test_parse_message_maps_real_kis_notice_format(self):
+        payload = {
+            "header": {"tr_id": "H0STCNT0"},
+            "body": {
+                "rt_cd": "0",
+                "output": {
+                    "mksc_shrn_iscd": "005930",
+                    "stck_prpr": "71300",
+                    "prdy_ctrt": "1.49",
+                    "acml_tr_pbmn": "2233445566",
+                },
+            },
+        }
+
+        parsed = parse_message(payload)
+
+        self.assertEqual(parsed["symbol"], "005930")
+        self.assertEqual(parsed["price"], 71300.0)
+        self.assertEqual(parsed["change_pct"], 1.49)
+        self.assertEqual(parsed["turnover"], 2233445566.0)
+
+    def test_client_build_subscribe_message_matches_kis_contract(self):
+        client = KisWsClient(approval_key="approval-token")
+
+        message = client.build_subscribe_message(symbol="005930")
+
+        self.assertEqual(message["header"]["approval_key"], "approval-token")
+        self.assertEqual(message["header"]["custtype"], "P")
+        self.assertEqual(message["header"]["tr_type"], "1")
+        self.assertEqual(message["header"]["content-type"], "utf-8")
+        self.assertEqual(message["body"]["input"]["tr_id"], "H0STCNT0")
+        self.assertEqual(message["body"]["input"]["tr_key"], "005930")
+
     def test_parse_message_raises_for_invalid_payload(self):
         with self.assertRaises(ValueError):
             parse_message("not-json")
