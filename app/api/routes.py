@@ -107,8 +107,11 @@ def get_order_status(order_id: str):
 
 
 @router.get('/metrics/quote')
-def quote_metrics():
-    return quote_ingest_worker.metrics()
+def quote_metrics(request: Request):
+    metrics = quote_ingest_worker.metrics()
+    service = request.app.state.quote_gateway_service
+    metrics.update(service.metrics())
+    return metrics
 
 
 @router.get('/metrics/order')
