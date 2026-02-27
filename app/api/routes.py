@@ -1,11 +1,11 @@
 from datetime import datetime, time
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.schemas.order import OrderAccepted, OrderRequest
 from app.schemas.risk import RiskCheckRequest
 from app.services.order_queue import order_queue
-from app.services.quote_cache import quote_cache, quote_ingest_worker, seed_demo_quote
+from app.services.quote_cache import quote_ingest_worker
 from app.services.session_state import session_orchestrator
 
 router = APIRouter()
@@ -36,21 +36,17 @@ def reconnect_session(x_operator_token: str | None = Header(default=None, alias=
 
 
 @router.get('/quotes/{symbol}')
-def get_quote(symbol: str):
-    row = quote_cache.get(symbol)
-    if not row:
-        seed_demo_quote(symbol)
-        row = quote_cache.get(symbol)
+def get_quote(symbol: str, request: Request):
+    service = request.app.state.quote_gateway_service
+    row = service.get_quote(symbol)
     return row.model_dump()
 
 
 @router.get('/quotes')
-def get_quotes(symbols: str):
+def get_quotes(symbols: str, request: Request):
+    service = request.app.state.quote_gateway_service
     req = [s.strip() for s in symbols.split(',') if s.strip()]
-    for s in req:
-        if not quote_cache.get(s):
-            seed_demo_quote(s)
-    return [r.model_dump() for r in quote_cache.list_many(req)]
+    return [service.get_quote(s).model_dump() for s in req]
 
 
 @router.post('/risk/check')
