@@ -13,6 +13,20 @@ def get_session_status():
     return session_orchestrator.status().model_dump()
 
 
+@router.post('/session/reconnect')
+def reconnect_session(x_operator_token: str | None = Header(default=None, alias='X-Operator-Token')):
+    if not x_operator_token:
+        raise HTTPException(status_code=400, detail='X-Operator-Token header required')
+    success = session_orchestrator.acquire(owner='gateway', ttl_sec=30, source='reconnect-api')
+    status = session_orchestrator.status()
+    return {
+        'success': success,
+        'owner': status.owner,
+        'state': status.state,
+        'source': status.source,
+    }
+
+
 @router.get('/quotes/{symbol}')
 def get_quote(symbol: str):
     row = quote_cache.get(symbol)
@@ -36,6 +50,7 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
     if not idempotency_key:
         raise HTTPException(status_code=400, detail='Idempotency-Key header required')
     return order_queue.enqueue(req, idempotency_key)
+
 
 
 @router.get('/metrics/quote')
