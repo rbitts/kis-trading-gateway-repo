@@ -36,7 +36,7 @@ class KisRestClient:
     def _issue_token(self) -> str:
         response = self.session.post(
             f"{self.base_url}/oauth2/tokenP",
-            headers={"content-type": "application/json"},
+            headers={"content-type": "application/json; charset=utf-8"},
             json={
                 "grant_type": "client_credentials",
                 "appkey": self.app_key,
@@ -50,8 +50,11 @@ class KisRestClient:
         token = payload["access_token"]
         expires_in = int(payload.get("expires_in", 3600))
         self._access_token = token
-        # refresh a bit earlier
-        self._token_expires_at = time.time() + max(expires_in - 30, 0)
+
+        issued_at = time.time()
+        # refresh a bit earlier, but cache briefly even for very short TTL tokens
+        refresh_ttl = max(expires_in - 30, min(expires_in, 1))
+        self._token_expires_at = issued_at + refresh_ttl
         return token
 
     def get_access_token(self) -> str:
