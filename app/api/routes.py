@@ -76,6 +76,19 @@ def check_risk(req: RiskCheckRequest):
 def create_order(req: OrderRequest, idempotency_key: str | None = Header(default=None, alias='Idempotency-Key')):
     if not idempotency_key:
         raise HTTPException(status_code=400, detail='Idempotency-Key header required')
+
+    risk_result = check_risk(
+        RiskCheckRequest(
+            account_id=req.account_id,
+            symbol=req.symbol,
+            side=req.side,
+            qty=req.qty,
+            price=req.price,
+        )
+    )
+    if not risk_result['ok']:
+        raise HTTPException(status_code=400, detail=risk_result['reason'])
+
     return order_queue.enqueue(req, idempotency_key)
 
 

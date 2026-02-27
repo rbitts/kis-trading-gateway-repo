@@ -1,5 +1,7 @@
 import time
 import unittest
+from datetime import datetime as real_datetime
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -123,9 +125,11 @@ class Iteration1Test(unittest.TestCase):
 
     def test_metrics_endpoints(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 70100})
-        self.client.post('/v1/orders', headers={'Idempotency-Key': 'm1'}, json={
-            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1
-        })
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            self.client.post('/v1/orders', headers={'Idempotency-Key': 'm1'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1
+            })
 
         quote_metrics = self.client.get('/v1/metrics/quote')
         order_metrics = self.client.get('/v1/metrics/order')
@@ -156,18 +160,35 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {'ok': False, 'reason': 'NOTIONAL_LIMIT_EXCEEDED'})
 
-    def test_risk_check_trading_window_or_outside_window(self):
-        r = self.client.post('/v1/risk/check', json={
-            'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
-        })
-        self.assertEqual(r.status_code, 200)
+    def test_risk_check_trading_window_inside_window(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/risk/check', json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+            })
 
-        body = r.json()
-        if body.get('ok') is True:
-            self.assertIsNone(body.get('reason'))
-        else:
-            self.assertEqual(body.get('ok'), False)
-            self.assertEqual(body.get('reason'), 'OUT_OF_TRADING_WINDOW')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': True, 'reason': None})
+
+    def test_order_create_blocked_by_risk_with_reason_code(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 20, 0, 0)
+            r = self.client.post('/v1/orders', headers={'Idempotency-Key': 'risk-fail-1'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json(), {'detail': 'OUT_OF_TRADING_WINDOW'})
+
+    def test_order_create_accepts_when_risk_passes(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/orders', headers={'Idempotency-Key': 'risk-pass-1'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'ACCEPTED')
 
 
 if __name__ == '__main__':
