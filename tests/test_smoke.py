@@ -12,6 +12,21 @@ class SmokeTest(unittest.TestCase):
     def setUp(self):
         app.state.quote_gateway_service.rest_client = _DemoRestQuoteClient()
 
+    def test_api_docs_site_skeleton_links(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        index_html = (repo_root / 'docs/site/index.html').read_text(encoding='utf-8')
+        redoc_live = (repo_root / 'docs/site/redoc-live.html').read_text(encoding='utf-8')
+        redoc_next = (repo_root / 'docs/site/redoc-next.html').read_text(encoding='utf-8')
+        styles = repo_root / 'docs/site/styles.css'
+
+        self.assertTrue(styles.exists())
+        self.assertIn('redoc-live.html', index_html)
+        self.assertIn('redoc-next.html', index_html)
+        self.assertIn('./api/openapi-live.json', index_html)
+        self.assertIn('./api/openapi-next.yaml', index_html)
+        self.assertIn('./api/openapi-live.json', redoc_live)
+        self.assertIn('./api/openapi-next.yaml', redoc_next)
+
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
         readme = (repo_root / 'README.md').read_text(encoding='utf-8')
