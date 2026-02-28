@@ -1,0 +1,92 @@
+openapi: 3.0.3
+info:
+  title: KIS Trading Gateway Next API
+  version: 0.1.0-next
+paths:
+  /v1/orders:
+    post:
+      operationId: createOrder
+      summary: Create a new order
+      responses:
+        '200':
+          description: Order accepted
+        '400':
+          description: Contract or risk violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/orders/{order_id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Cancel an existing order
+      parameters:
+        - in: path
+          name: order_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancel accepted
+        '400':
+          description: Invalid transition or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/orders/{order_id}/modify:
+    post:
+      operationId: modifyOrder
+      summary: Modify an existing order
+      parameters:
+        - in: path
+          name: order_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Modify accepted
+        '400':
+          description: Invalid transition or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/balances:
+    get:
+      operationId: getBalances
+      summary: Retrieve account balances
+      responses:
+        '200':
+          description: Balance list
+  /v1/positions:
+    get:
+      operationId: getPositions
+      summary: Retrieve account positions
+      responses:
+        '200':
+          description: Position list
+  /v1/orders/reconcile:
+    post:
+      operationId: reconcileOrders
+      summary: Reconcile internal and broker order states
+      responses:
+        '200':
+          description: Reconciliation completed
+components:
+  schemas:
+    Error:
+      type: object
+      required:
+        - code
+        - message
+        - retryable
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean
