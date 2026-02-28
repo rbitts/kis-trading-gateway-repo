@@ -14,6 +14,14 @@ class KisRestClient:
         "live": "https://openapi.koreainvestment.com:9443",
     }
 
+    _ORDER_TR_ID = {
+        "mock": {"BUY": "VTTC0802U", "SELL": "VTTC0801U"},
+        "live": {"BUY": "TTTC0802U", "SELL": "TTTC0801U"},
+    }
+
+    _KIS_SIDE = {"BUY": "02", "SELL": "01"}
+    _KIS_ORDER_TYPE = {"LIMIT": "00", "MARKET": "01"}
+
     def __init__(
         self,
         app_key: str,
@@ -91,6 +99,27 @@ class KisRestClient:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _split_account(account_id: str) -> tuple[str, str]:
+        if "-" in account_id:
+            cano, acnt_prdt_cd = account_id.split("-", 1)
+            return cano, acnt_prdt_cd
+        return account_id[:8], account_id[8:] or "01"
+
+    def _raise_if_kis_error(self, payload: Dict[str, Any]) -> None:
+        if str(payload.get("rt_cd", "0")) == "0":
+            return
+
+        msg_cd = str(payload.get("msg_cd", ""))
+        msg_text = str(payload.get("msg1", "KIS_ERROR"))
+        lowered = f"{msg_cd} {msg_text}".lower()
+
+        if "rate" in lowered or "429" in lowered:
+            raise RuntimeError("RATE_LIMIT")
+        if "auth" in lowered or "token" in lowered:
+            raise RuntimeError("AUTH")
+        raise RuntimeError("INVALID_ORDER")
+
     def get_quote(self, symbol: str) -> Dict[str, Any]:
         token = self.get_access_token()
 
@@ -116,4 +145,83 @@ class KisRestClient:
             "turnover": self._to_float(output.get("acml_tr_pbmn")),
             "source": "kis-rest",
             "ts": int(time.time()),
+        }
+
+    def place_order(
+        self,
+        account_id: str,
+        symbol: str,
+        side: str,
+        qty: int,
+        price: float | None,
+        order_type: str = "LIMIT",
+    ) -> Dict[str, Any]:
+        side = side.upper()
+        order_type = order_type.upper()
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.post(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/order-cash",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": self._ORDER_TR_ID[self.env][side],
+                "custtype": "P",
+                "content-type": "application/json; charset=utf-8",
+            },
+            json={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "PDNO": symbol,
+                "ORD_DVSN": self._KIS_ORDER_TYPE.get(order_type, "00"),
+                "ORD_QTY": str(qty),
+                "ORD_UNPR": "0" if price is None else str(int(price)),
+                "SLL_BUY_DVSN_CD": self._KIS_SIDE[side],
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+        output = payload.get("output", {})
+
+        broker_order_id = str(output.get("ODNO") or output.get("odno") or "")
+        return {
+            "broker_order_id": broker_order_id,
+            "status": "SENT",
+            "raw": payload,
+        }
+
+    def get_order_status(self, account_id: str, broker_order_id: str) -> Dict[str, Any]:
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.get(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": "VTTC8001R" if self.env == "mock" else "TTTC8001R",
+                "custtype": "P",
+            },
+            params={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "ODNO": broker_order_id,
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+
+        output = payload.get("output1", [])
+        row = output[0] if output else {}
+        return {
+            "broker_order_id": str(row.get("odno") or broker_order_id),
+            "status": str(row.get("ord_stts") or "UNKNOWN"),
+            "raw": payload,
         }
