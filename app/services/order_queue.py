@@ -172,6 +172,32 @@ class OrderQueue:
             return None
         return str(job["status"])
 
+    def request_cancel(self, order_id: str) -> dict:
+        job = self.jobs.get(order_id)
+        if not job:
+            raise KeyError("ORDER_NOT_FOUND")
+        if job.get("terminal"):
+            raise RuntimeError("ORDER_ALREADY_TERMINAL")
+
+        job["status"] = "CANCEL_PENDING"
+        job["updated_at"] = int(time.time())
+        return job
+
+    def request_modify(self, order_id: str, *, qty: int, price: float | None = None) -> dict:
+        job = self.jobs.get(order_id)
+        if not job:
+            raise KeyError("ORDER_NOT_FOUND")
+        if job.get("terminal"):
+            raise RuntimeError("ORDER_ALREADY_TERMINAL")
+
+        request_payload = job.get("request", {})
+        request_payload["qty"] = qty
+        request_payload["price"] = price
+
+        job["status"] = "MODIFY_PENDING"
+        job["updated_at"] = int(time.time())
+        return job
+
     def metrics(self) -> dict:
         base = {
             "accepted": 0,

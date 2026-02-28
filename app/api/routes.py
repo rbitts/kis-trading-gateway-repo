@@ -1,6 +1,7 @@
 from datetime import datetime, time
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
 
 from app.errors import RestRateLimitCooldownError
 from app.schemas.order import OrderAccepted, OrderRequest
@@ -29,6 +30,12 @@ _LIVE_TRADING_ENABLED = True
 _DAILY_ORDER_LIMIT = 50
 _MAX_ORDER_QTY = 100
 _daily_order_count = 0
+
+
+class OrderModifyRequest(BaseModel):
+    qty: int
+    price: float | None = None
+
 
 
 def _current_daily_order_count() -> int:
@@ -193,6 +200,60 @@ def get_order_state(order_id: str):
         'max_attempts': job.get('max_attempts', 0),
         'terminal': job.get('terminal', False),
     }
+
+
+@router.post('/orders/{order_id}/cancel', response_model=OrderAccepted)
+def cancel_order(order_id: str):
+    job = order_queue.jobs.get(order_id)
+    if not job:
+        raise HTTPException(status_code=404, detail='order not found')
+
+    if job.get('terminal'):
+        raise HTTPException(status_code=409, detail='ORDER_ALREADY_TERMINAL')
+
+    _ensure_transition_allowed(current_status=job['status'], action='cancel')
+
+    try:
+        updated = order_queue.request_cancel(order_id)
+    except RuntimeError as exc:
+        if str(exc) == 'ORDER_ALREADY_TERMINAL':
+            raise HTTPException(status_code=409, detail='ORDER_ALREADY_TERMINAL') from exc
+        raise
+
+    return {
+        'order_id': updated['order_id'],
+        'status': updated['status'],
+        'idempotency_key': f'cancel:{order_id}',
+    }
+
+
+@router.post('/orders/{order_id}/modify', response_model=OrderAccepted)
+def modify_order(order_id: str, req: OrderModifyRequest):
+    if req.qty < 1:
+        raise HTTPException(status_code=400, detail='INVALID_QTY')
+
+    job = order_queue.jobs.get(order_id)
+    if not job:
+        raise HTTPException(status_code=404, detail='order not found')
+
+    if job.get('terminal'):
+        raise HTTPException(status_code=409, detail='ORDER_ALREADY_TERMINAL')
+
+    _ensure_transition_allowed(current_status=job['status'], action='modify')
+
+    try:
+        updated = order_queue.request_modify(order_id, qty=req.qty, price=req.price)
+    except RuntimeError as exc:
+        if str(exc) == 'ORDER_ALREADY_TERMINAL':
+            raise HTTPException(status_code=409, detail='ORDER_ALREADY_TERMINAL') from exc
+        raise
+
+    return {
+        'order_id': updated['order_id'],
+        'status': updated['status'],
+        'idempotency_key': f'modify:{order_id}',
+    }
+
 
 
 @router.get('/metrics/quote')
