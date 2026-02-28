@@ -133,4 +133,50 @@ console.log(await risk.json());
 ```
 
 ## 4) Reference (Appendix)
-- 상세 엔드포인트/에러/운영 체크는 아래 부록 섹션에서 확장 예정
+
+### Appendix A) Endpoint Reference
+- `GET /session/status`
+- `GET /session/live-readiness`
+- `POST /session/reconnect`
+- `GET /quotes/{symbol}`
+- `GET /quotes?symbols=...`
+- `POST /risk/check`
+- `POST /orders`
+- `GET /orders/{order_id}`
+- `GET /orders/{order_id}/state`
+- `POST /orders/{order_id}/modify`
+- `POST /orders/{order_id}/cancel`
+- `GET /balances?account_id=...`
+- `GET /positions?account_id=...`
+- `GET /metrics/quote`
+- `GET /metrics/order`
+
+### Appendix B) Error Codes & Mapping
+주요 에러 코드:
+- `INVALID_QTY`
+- `INVALID_PRICE`
+- `INVALID_SIDE`
+- `INVALID_ORDER_TYPE`
+- `PRICE_REQUIRED_FOR_LIMIT`
+- `PRICE_NOT_ALLOWED_FOR_MARKET`
+- `NOTIONAL_LIMIT_EXCEEDED`
+- `OUT_OF_TRADING_WINDOW`
+- `POSITION_PROVIDER_UNAVAILABLE`
+- `PORTFOLIO_PROVIDER_NOT_CONFIGURED`
+- `IDEMPOTENCY_KEY_BODY_MISMATCH`
+- `INVALID_TRANSITION`
+
+HTTP 매핑(요약):
+- `400`: 요청 계약/리스크 위반
+- `409`: 멱등성 body mismatch 또는 terminal 상태 충돌
+- `503`: provider 미구성/쿨다운 등 일시적 가용성 이슈
+
+### Appendix C) Live Readiness 운영 체크
+실브로커 검증 전 고정 순서:
+1. `GET /v1/session/live-readiness` 호출
+2. `can_trade=true` 확인 시에만 제한적 주문 검증 단계 진입
+3. `can_trade=false`면 blocker(`required_env_missing`, `WS_DISCONNECTED`, `WS_ERROR_PRESENT`) 해소 전 주문 검증 진행 금지
+
+관련 운영 문서:
+- `docs/ops/kis-quote-runbook.md`
+- `docs/ops/kis-order-live-validation-checklist.md`

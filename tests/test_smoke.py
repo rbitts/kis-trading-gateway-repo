@@ -53,6 +53,12 @@ class SmokeTest(unittest.TestCase):
         self.assertIn('Order Create + Status', guide)
         self.assertIn('Modify / Cancel', guide)
         self.assertIn('Risk Check', guide)
+        self.assertIn('Appendix A) Endpoint Reference', guide)
+        self.assertIn('Appendix B) Error Codes & Mapping', guide)
+        self.assertIn('Appendix C) Live Readiness 운영 체크', guide)
+        self.assertIn('IDEMPOTENCY_KEY_BODY_MISMATCH', guide)
+        self.assertIn('PORTFOLIO_PROVIDER_NOT_CONFIGURED', guide)
+        self.assertIn('POSITION_PROVIDER_UNAVAILABLE', guide)
 
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
