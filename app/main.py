@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -40,11 +41,21 @@ async def lifespan(app: FastAPI):
         # keep app import/lifecycle resilient in test env without KIS secrets
         pass
 
-    app.state.ws_client.start()
+    ws_worker = threading.Thread(
+        target=lambda: app.state.ws_client.run_with_reconnect(
+            connect_once=lambda: app.state.ws_client.connect_and_subscribe(symbols=['005930'])
+        ),
+        daemon=True,
+        name='kis-ws-worker',
+    )
+    app.state.ws_worker_thread = ws_worker
+    ws_worker.start()
+
     try:
         yield
     finally:
         app.state.ws_client.stop()
+        ws_worker.join(timeout=1.0)
 
 
 app = FastAPI(title="KIS Trading Gateway", version="0.1.0", lifespan=lifespan)
