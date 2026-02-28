@@ -27,3 +27,39 @@ def evaluate_side_policy(
         return {'ok': True, 'reason': None}
 
     return {'ok': False, 'reason': 'INVALID_SIDE'}
+
+
+def evaluate_trade_risk(
+    req: RiskCheckRequest,
+    *,
+    live_enabled: bool,
+    daily_order_count: int,
+    daily_order_limit: int,
+    max_qty: int,
+    get_available_sell_qty=get_available_sell_qty,
+) -> dict[str, bool | str | None]:
+    if not live_enabled:
+        return {'ok': False, 'reason': 'LIVE_DISABLED'}
+
+    if daily_order_count >= daily_order_limit:
+        return {'ok': False, 'reason': 'DAILY_LIMIT_EXCEEDED'}
+
+    if req.qty > max_qty:
+        return {'ok': False, 'reason': 'MAX_QTY_EXCEEDED'}
+
+    return evaluate_side_policy(req, get_available_sell_qty=get_available_sell_qty)
+
+
+_ALLOWED_TRANSITIONS = {
+    'cancel': {'NEW', 'DISPATCHING', 'SENT', 'ACCEPTED', 'QUEUED'},
+    'modify': {'NEW', 'DISPATCHING', 'SENT', 'ACCEPTED', 'QUEUED'},
+}
+
+
+def validate_order_action_transition(*, action: str, current_status: str) -> dict[str, bool | str | None]:
+    normalized_action = action.lower()
+    normalized_status = current_status.upper()
+    allowed = _ALLOWED_TRANSITIONS.get(normalized_action, set())
+    if normalized_status not in allowed:
+        return {'ok': False, 'reason': 'INVALID_TRANSITION'}
+    return {'ok': True, 'reason': None}

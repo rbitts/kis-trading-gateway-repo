@@ -7,7 +7,11 @@ from app.schemas.order import OrderAccepted, OrderRequest
 from app.schemas.risk import RiskCheckRequest
 from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_ingest_worker
-from app.services.risk_policy import evaluate_side_policy, get_available_sell_qty
+from app.services.risk_policy import (
+    evaluate_trade_risk,
+    get_available_sell_qty,
+    validate_order_action_transition,
+)
 from app.services.session_state import session_orchestrator
 
 router = APIRouter()
@@ -19,6 +23,27 @@ _TRADING_END = time(15, 30)
 _ALLOWED_SIDES = {"BUY", "SELL"}
 _ALLOWED_ORDER_TYPES = {"LIMIT", "MARKET"}
 
+
+
+_LIVE_TRADING_ENABLED = True
+_DAILY_ORDER_LIMIT = 50
+_MAX_ORDER_QTY = 100
+_daily_order_count = 0
+
+
+def _current_daily_order_count() -> int:
+    return _daily_order_count
+
+
+def _increment_daily_order_count() -> None:
+    global _daily_order_count
+    _daily_order_count += 1
+
+
+def _ensure_transition_allowed(*, current_status: str, action: str) -> None:
+    transition_result = validate_order_action_transition(action=action, current_status=current_status)
+    if not transition_result['ok']:
+        raise HTTPException(status_code=400, detail=transition_result['reason'])
 
 def _validate_order_contract(req: OrderRequest) -> str | None:
     if req.side not in _ALLOWED_SIDES:
@@ -86,9 +111,16 @@ def check_risk(req: RiskCheckRequest):
     if req.price is not None and req.price <= 0:
         return {'ok': False, 'reason': 'INVALID_PRICE'}
 
-    side_policy_result = evaluate_side_policy(req, get_available_sell_qty=get_available_sell_qty)
-    if not side_policy_result['ok']:
-        return side_policy_result
+    trade_risk_result = evaluate_trade_risk(
+        req,
+        live_enabled=_LIVE_TRADING_ENABLED,
+        daily_order_count=_current_daily_order_count(),
+        daily_order_limit=_DAILY_ORDER_LIMIT,
+        max_qty=_MAX_ORDER_QTY,
+        get_available_sell_qty=get_available_sell_qty,
+    )
+    if not trade_risk_result['ok']:
+        return trade_risk_result
 
     now_time = datetime.now().time().replace(tzinfo=None)
     if not (_TRADING_START <= now_time <= _TRADING_END):
@@ -119,7 +151,9 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
         raise HTTPException(status_code=400, detail=risk_result['reason'])
 
     try:
-        return order_queue.enqueue(req, idempotency_key)
+        accepted = order_queue.enqueue(req, idempotency_key)
+        _increment_daily_order_count()
+        return accepted
     except ValueError as exc:
         if str(exc) == 'IDEMPOTENCY_KEY_BODY_MISMATCH':
             raise HTTPException(status_code=409, detail='IDEMPOTENCY_KEY_BODY_MISMATCH') from exc
