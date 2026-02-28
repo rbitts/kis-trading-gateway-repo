@@ -25,6 +25,10 @@ class _PortfolioStubClient:
         ]
 
 
+class _MissingPortfolioProvider:
+    pass
+
+
 class TestBalancePositionEndpoints(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -53,6 +57,20 @@ class TestBalancePositionEndpoints(unittest.TestCase):
         self.assertEqual(payload[0]["account_id"], "12345678-01")
         self.assertEqual(payload[0]["symbol"], "005930")
         self.assertEqual(payload[0]["qty"], 7)
+
+    def test_get_balances_returns_503_when_provider_not_configured(self):
+        app.state.quote_gateway_service.rest_client = _MissingPortfolioProvider()
+        resp = self.client.get("/v1/balances", params={"account_id": "12345678-01"})
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json(), {"detail": "PORTFOLIO_PROVIDER_NOT_CONFIGURED"})
+
+    def test_get_positions_returns_503_when_provider_not_configured(self):
+        app.state.quote_gateway_service.rest_client = _MissingPortfolioProvider()
+        resp = self.client.get("/v1/positions", params={"account_id": "12345678-01"})
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json(), {"detail": "PORTFOLIO_PROVIDER_NOT_CONFIGURED"})
 
 
 if __name__ == "__main__":
