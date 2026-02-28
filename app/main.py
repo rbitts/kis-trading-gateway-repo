@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
         name='kis-ws-worker',
     )
     app.state.ws_worker_thread = ws_worker
+    print("[WS][ws_worker_start] thread=kis-ws-worker", flush=True)
     ws_worker.start()
 
     try:
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     finally:
         app.state.ws_client.stop()
         ws_worker.join(timeout=1.0)
+        print("[WS][ws_worker_stop] thread=kis-ws-worker", flush=True)
 
 
 app = FastAPI(title="KIS Trading Gateway", version="0.1.0", lifespan=lifespan)
@@ -65,7 +67,10 @@ app.include_router(router, prefix="/v1")
 
 # NOTE: lazy-loaded so app import does not require env during tests.
 app.state.get_settings = get_settings
-app.state.ws_client = KisWsClient(on_message=quote_ingest_worker.on_ws_message)
+app.state.ws_client = KisWsClient(
+    on_message=quote_ingest_worker.on_ws_message,
+    on_state_change=quote_ingest_worker.sync_ws_state,
+)
 app.state.quote_gateway_service = QuoteGatewayService(
     quote_cache=quote_cache,
     rest_client=_DemoRestQuoteClient(),

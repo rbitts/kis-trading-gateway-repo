@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -86,8 +87,8 @@ class KisWsClient:
     """KIS websocket client with subscribe and ingest callback flow."""
 
     _WS_URLS = {
-        "mock": "wss://openapivts.koreainvestment.com:21000",
-        "live": "wss://openapi.koreainvestment.com:21000",
+        "mock": "ws://ops.koreainvestment.com:31000",
+        "live": "ws://ops.koreainvestment.com:21000",
     }
 
     def __init__(
@@ -117,6 +118,7 @@ class KisWsClient:
         self.env = env
         self._websocket_app_factory = websocket_app_factory or self._default_websocket_app_factory
         self._on_state_change = on_state_change
+        self._first_message_logged = False
 
     def _emit_state(self, *, connected: bool, heartbeat_ts: int | None = None) -> None:
         if self._on_state_change is None:
@@ -130,7 +132,9 @@ class KisWsClient:
 
     @property
     def ws_url(self) -> str:
-        return self._WS_URLS.get(self.env, self._WS_URLS["mock"])
+        if self.env == "live":
+            return os.getenv("KIS_WS_URL_LIVE", self._WS_URLS["live"])
+        return os.getenv("KIS_WS_URL_MOCK", self._WS_URLS["mock"])
 
     def _default_websocket_app_factory(self, *args: Any, **kwargs: Any) -> Any:
         from websocket import WebSocketApp
@@ -143,6 +147,7 @@ class KisWsClient:
 
     def stop(self) -> None:
         self.running = False
+        self._first_message_logged = False
         self._emit_state(connected=False)
 
     def set_on_message(self, callback: Callable[[Dict[str, Any]], None]) -> None:
@@ -181,23 +186,49 @@ class KisWsClient:
 
     def connect_and_subscribe(self, symbols: list[str], *, run_forever: bool = True) -> Any:
         self.ensure_approval_key()
+        print(f"[WS][ws_connect] env={self.env} url={self.ws_url} symbols={','.join(symbols)}", flush=True)
+        state = {"opened": False}
 
         def _on_open(ws: Any) -> None:
+            state["opened"] = True
+            print("[WS][ws_connect_result] status=open", flush=True)
+            self._emit_state(connected=True, heartbeat_ts=int(time.time()))
             for symbol in symbols:
                 message = self.build_subscribe_message(symbol)
                 ws.send(json.dumps(message))
+                print(f"[WS][ws_subscribe] symbol={symbol}", flush=True)
 
         def _on_message(_: Any, raw_message: Any) -> None:
-            self.handle_raw_message(raw_message)
+            if not self._first_message_logged:
+                print("[WS][ws_first_message] received=1", flush=True)
+                self._first_message_logged = True
+            try:
+                self.handle_raw_message(raw_message)
+            except ValueError as exc:
+                # KIS ACK/heartbeat/control messages may not include quote fields.
+                print(f"[WS][ws_message_skip] reason={exc}", flush=True)
+
+        def _on_error(_: Any, error: Any) -> None:
+            self.last_error = str(error)
+            print(f"[WS][ws_error] {self.last_error}", flush=True)
+            self._emit_state(connected=False)
+
+        def _on_close(_: Any, code: Any, reason: Any) -> None:
+            print(f"[WS][ws_close] code={code} reason={reason}", flush=True)
+            self._emit_state(connected=False)
 
         ws_app = self._websocket_app_factory(
             self.ws_url,
             on_open=_on_open,
             on_message=_on_message,
+            on_error=_on_error,
+            on_close=_on_close,
         )
 
         if run_forever:
             ws_app.run_forever()
+            if not state["opened"]:
+                raise RuntimeError("ws_open_not_confirmed")
 
         return ws_app
 
