@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.errors import RestRateLimitCooldownError
 from app.schemas.order import OrderAccepted, OrderRequest
+from app.schemas.portfolio import Balance, Position
 from app.schemas.risk import RiskCheckRequest
 from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_ingest_worker
@@ -254,6 +255,22 @@ def modify_order(order_id: str, req: OrderModifyRequest):
         'idempotency_key': f'modify:{order_id}',
     }
 
+
+
+@router.get('/balances', response_model=list[Balance])
+def get_balances(account_id: str, request: Request):
+    rest_client = request.app.state.quote_gateway_service.rest_client
+    if hasattr(rest_client, 'get_balances'):
+        return rest_client.get_balances(account_id)
+    return []
+
+
+@router.get('/positions', response_model=list[Position])
+def get_positions(account_id: str, request: Request):
+    rest_client = request.app.state.quote_gateway_service.rest_client
+    if hasattr(rest_client, 'get_positions'):
+        return rest_client.get_positions(account_id)
+    return []
 
 
 @router.get('/metrics/quote')

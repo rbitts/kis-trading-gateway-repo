@@ -288,3 +288,93 @@ class KisRestClient:
         payload = response.json()
         self._raise_if_kis_error(payload)
         return {"status": "MODIFY_PENDING", "raw": payload}
+
+
+    def get_balances(self, account_id: str) -> list[Dict[str, Any]]:
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.get(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-psbl-order",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": "VTTC8908R" if self.env == "mock" else "TTTC8908R",
+                "custtype": "P",
+            },
+            params={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "PDNO": "005930",
+                "ORD_UNPR": "0",
+                "ORD_DVSN": "01",
+                "CMA_EVLU_AMT_ICLD_YN": "N",
+                "OVRS_ICLD_YN": "N",
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+        output = payload.get("output", {})
+
+        return [
+            {
+                "account_id": account_id,
+                "currency": "KRW",
+                "cash_available": self._to_float(output.get("ord_psbl_cash")),
+            }
+        ]
+
+    def get_positions(self, account_id: str) -> list[Dict[str, Any]]:
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.get(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": "VTTC8434R" if self.env == "mock" else "TTTC8434R",
+                "custtype": "P",
+            },
+            params={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "AFHR_FLPR_YN": "N",
+                "OFL_YN": "",
+                "INQR_DVSN": "02",
+                "UNPR_DVSN": "01",
+                "FUND_STTL_ICLD_YN": "N",
+                "FNCG_AMT_AUTO_RDPT_YN": "N",
+                "PRCS_DVSN": "01",
+                "CTX_AREA_FK100": "",
+                "CTX_AREA_NK100": "",
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+
+        positions = []
+        for row in payload.get("output1", []) or []:
+            symbol = str(row.get("pdno") or "").strip()
+            if not symbol:
+                continue
+            qty_value = row.get("hldg_qty")
+            try:
+                qty = int(float(qty_value or 0))
+            except (TypeError, ValueError):
+                qty = 0
+            positions.append(
+                {
+                    "account_id": account_id,
+                    "symbol": symbol,
+                    "qty": qty,
+                }
+            )
+
+        return positions
