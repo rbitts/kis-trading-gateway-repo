@@ -11,6 +11,7 @@ export KIS_APP_KEY="..."
 export KIS_APP_SECRET="..."
 export KIS_ACCOUNT_NO="12345678-01"
 export KIS_ENV="mock"   # mock | live
+export KIS_WS_SYMBOLS="005930,000660"  # 런타임 WS subscribe 대상(콤마 구분)
 ```
 
 앱 실행:
@@ -33,6 +34,7 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 
 정상 기준:
 - `/v1/session/status` 응답 OK
+- startup/lifespan 로그에서 WS runtime activation(시작) 확인
 - `/v1/metrics/quote`에 최소 키 존재: `cached_symbols`, `ws_messages`, `rest_fallbacks`, `ws_connected`, `last_ws_message_ts`
 - 추가 키 확인: `ws_heartbeat_fresh`, `ws_reconnect_count`, `ws_last_error`
 
@@ -46,7 +48,7 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
    - 실패 시 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ENV(live)` 값 우선 재검증
 2. **WebSocket 연결 + subscribe ACK 확인**
    - `/v1/metrics/quote`에서 `ws_connected=true` 확인
-   - subscribe ACK(성공 코드) 및 초기 실시간 메시지 수신 로그 확인
+   - `KIS_WS_SYMBOLS`에 지정한 심볼 기준 subscribe ACK(성공 코드) 및 초기 실시간 메시지 수신 로그 확인
 3. **WS 지표 정상성 확인**
    - `ws_messages`가 시간 경과에 따라 증가
    - `last_ws_message_ts`가 최근 시각으로 지속 갱신
@@ -69,6 +71,7 @@ curl -s "http://127.0.0.1:8890/v1/metrics/quote" | jq
 판단 포인트:
 - `rest_fallbacks` 증가: WS stale/미수신 또는 장외 REST 사용
 - `ws_connected=false` + 장중: WS 경로 점검 필요
+- 장중 `/v1/quotes/{symbol}` 결과가 `source="kis-ws"`면 runtime activation 정상
 
 ## 4) 장애 대응
 
