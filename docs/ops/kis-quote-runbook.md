@@ -70,11 +70,12 @@ curl -s "http://127.0.0.1:8890/v1/metrics/quote" | jq
 2. 프로세스 재기동(WS 재연결 트리거)
 3. 재기동 후 `ws_connected`, `ws_messages` 증가 확인
 4. 복구 전까지 REST fallback으로 서비스 지속 (기능상 정상)
+5. reconnect는 final attempt 실패 시 추가 대기(sleep) 없이 종료됨을 전제로 알람/재기동 정책 구성
 
 ### B. REST rate limit / 실패
 증상:
 - 장외 또는 fallback 시 quote 조회 실패/지연
-- 429 이후 API가 `REST_RATE_LIMIT_COOLDOWN`(HTTP 503) 반환
+- 429 이후 내부 `RestRateLimitCooldownError`가 API에서 `REST_RATE_LIMIT_COOLDOWN`(HTTP 503)으로 매핑되어 반환
 
 대응:
 1. 호출 빈도 축소(필요 심볼만 조회)
