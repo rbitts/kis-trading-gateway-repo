@@ -169,6 +169,23 @@ class QuoteGatewayServiceTest(unittest.TestCase):
 
         self.assertEqual(rest_client.calls, 1)
 
+    def test_prunes_expired_symbol_cooldown_entries(self):
+        cache = QuoteCache()
+        rest_client = StubRestClient({"price": 70500.0, "source": "kis-rest", "ts": int(time.time())})
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: False,
+            stale_after_sec=5,
+        )
+        now = int(time.time())
+        service._rest_symbol_cooldown_until = {"005930": now - 1, "000660": now + 10}
+
+        service.get_quote("005930")
+
+        self.assertNotIn("005930", service._rest_symbol_cooldown_until)
+        self.assertIn("000660", service._rest_symbol_cooldown_until)
+
 
 if __name__ == "__main__":
     unittest.main()
