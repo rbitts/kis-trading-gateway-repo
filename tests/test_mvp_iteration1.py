@@ -207,6 +207,27 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {'ok': False, 'reason': 'NOTIONAL_LIMIT_EXCEEDED'})
 
+    def test_risk_check_sell_requires_position_qty(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/risk/check', json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'SELL', 'qty': 1, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': False, 'reason': 'INSUFFICIENT_POSITION_QTY'})
+
+    def test_risk_check_sell_notional_limit_not_applied(self):
+        with patch('app.api.routes.datetime') as mock_datetime, \
+                patch('app.api.routes.get_available_sell_qty', return_value=1000):
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/risk/check', json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'SELL', 'qty': 200, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': True, 'reason': None})
+
     def test_risk_check_trading_window_inside_window(self):
         with patch('app.api.routes.datetime') as mock_datetime:
             mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
