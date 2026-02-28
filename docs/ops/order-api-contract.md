@@ -1,7 +1,7 @@
 # Order API Contract (Task 1)
 
-## Endpoint
-- `POST /v1/orders`
+## Existing Endpoint
+- `POST /v1/orders` (`operationId: createOrder`)
 
 ## Request Body
 - `account_id` (string, required)
@@ -27,6 +27,22 @@
 }
 ```
 
+## Next Contract Endpoints (OpenAPI Draft)
+- `POST /v1/orders/{order_id}/cancel` (`operationId: cancelOrder`)
+- `POST /v1/orders/{order_id}/modify` (`operationId: modifyOrder`)
+- `GET /v1/balances` (`operationId: getBalances`)
+- `GET /v1/positions` (`operationId: getPositions`)
+- `POST /v1/orders/reconcile` (`operationId: reconcileOrders`)
+
+## Error schema
+```json
+{
+  "code": "INVALID_TRANSITION",
+  "message": "Order cannot be modified in current state",
+  "retryable": false
+}
+```
+
 ## Error Codes
 - `INVALID_QTY`
 - `INVALID_PRICE`
@@ -37,6 +53,7 @@
 - `INVALID_ORDER_TYPE`
 - `PRICE_REQUIRED_FOR_LIMIT`
 - `PRICE_NOT_ALLOWED_FOR_MARKET`
+- `INVALID_TRANSITION`
 
 ## Error Mapping
 - `400`: contract/risk violations
