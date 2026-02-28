@@ -43,7 +43,9 @@ async def lifespan(app: FastAPI):
 
     ws_worker = threading.Thread(
         target=lambda: app.state.ws_client.run_with_reconnect(
-            connect_once=lambda: app.state.ws_client.connect_and_subscribe(symbols=['005930'])
+            connect_once=lambda: app.state.ws_client.connect_and_subscribe(
+                symbols=app.state.get_settings().KIS_WS_SYMBOLS
+            )
         ),
         daemon=True,
         name='kis-ws-worker',
