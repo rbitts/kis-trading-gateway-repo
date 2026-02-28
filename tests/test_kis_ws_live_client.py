@@ -39,23 +39,46 @@ class _FakeWebSocketApp:
             )
 
 
+class _FakeWebSocketAppWithAck(_FakeWebSocketApp):
+    def run_forever(self):
+        if self.on_open is not None:
+            self.on_open(self)
+        if self.on_message is not None:
+            self.on_message(self, json.dumps({"header": {"tr_id": "PING"}, "body": {"msg_cd": "0"}}))
+            self.on_message(
+                self,
+                json.dumps(
+                    {
+                        "body": {
+                            "output": {
+                                "mksc_shrn_iscd": "005930",
+                                "stck_prpr": "71300",
+                            }
+                        }
+                    }
+                ),
+            )
+
+
 class TestKisWsLiveClient(unittest.TestCase):
     def test_connect_subscribe_and_ingest_callback_flow(self):
         approval_client = MagicMock()
         approval_client.issue_approval_key.return_value = "approval-123"
 
         received = []
+        state_updates = []
         client = KisWsClient(
             on_message=lambda quote: received.append(quote),
             approval_key_client=approval_client,
             env="mock",
             websocket_app_factory=_FakeWebSocketApp,
+            on_state_change=lambda **kwargs: state_updates.append(kwargs),
         )
 
         ws_app = client.connect_and_subscribe(symbols=["005930"], run_forever=True)
 
         approval_client.issue_approval_key.assert_called_once_with()
-        self.assertEqual(ws_app.url, "wss://openapivts.koreainvestment.com:21000")
+        self.assertEqual(ws_app.url, "ws://ops.koreainvestment.com:31000")
         self.assertEqual(len(ws_app.sent_messages), 1)
 
         subscribe_payload = json.loads(ws_app.sent_messages[0])
@@ -66,6 +89,23 @@ class TestKisWsLiveClient(unittest.TestCase):
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]["symbol"], "005930")
         self.assertEqual(received[0]["price"], 71300.0)
+        self.assertTrue(any(update.get("connected") is True for update in state_updates))
+
+    def test_ack_control_message_is_skipped_without_breaking_quote_ingest(self):
+        approval_client = MagicMock()
+        approval_client.issue_approval_key.return_value = "approval-123"
+
+        received = []
+        client = KisWsClient(
+            on_message=lambda quote: received.append(quote),
+            approval_key_client=approval_client,
+            env="mock",
+            websocket_app_factory=_FakeWebSocketAppWithAck,
+        )
+
+        client.connect_and_subscribe(symbols=["005930"], run_forever=True)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["symbol"], "005930")
 
 
 if __name__ == "__main__":
