@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 
+from app.errors import RestRateLimitCooldownError
 from app.schemas.quote import QuoteSnapshot
 from app.services.market_hours import is_market_open
 from app.services.quote_cache import QuoteCache
@@ -60,7 +61,7 @@ class QuoteGatewayService:
                 if cached is not None:
                     self._is_fresh(cached, now)
                     return cached
-                raise RuntimeError("REST_RATE_LIMIT_COOLDOWN") from exc
+                raise RestRateLimitCooldownError("REST_RATE_LIMIT_COOLDOWN") from exc
             raise
         return QuoteSnapshot(
             symbol=str(payload["symbol"]),
@@ -80,7 +81,7 @@ class QuoteGatewayService:
             if cached is not None:
                 self._is_fresh(cached, now)
                 return cached
-            raise RuntimeError("REST_RATE_LIMIT_COOLDOWN")
+            raise RestRateLimitCooldownError("REST_RATE_LIMIT_COOLDOWN")
 
         if self.market_open_checker():
             cached = self.quote_cache.get(symbol)
