@@ -46,6 +46,13 @@ class SmokeTest(unittest.TestCase):
         self.assertIn('Quick Start', guide)
         self.assertIn('Base URL', guide)
         self.assertIn('Auth / Headers', guide)
+        self.assertIn('```bash', guide)
+        self.assertIn('```python', guide)
+        self.assertIn('```javascript', guide)
+        self.assertIn('Quote 조회', guide)
+        self.assertIn('Order Create + Status', guide)
+        self.assertIn('Modify / Cancel', guide)
+        self.assertIn('Risk Check', guide)
 
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
