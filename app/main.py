@@ -10,8 +10,10 @@ from app.api.routes import router
 from app.config.settings import get_settings
 from app.integrations.kis_rest import KisRestClient
 from app.integrations.kis_ws import KisWsClient
+from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_cache, quote_ingest_worker
 from app.services.quote_gateway import QuoteGatewayService
+from app.services.reconciliation import ReconciliationService
 
 
 class _DemoRestQuoteClient:
@@ -41,6 +43,8 @@ async def lifespan(app: FastAPI):
         # keep app import/lifecycle resilient in test env without KIS secrets
         pass
 
+    app.state.reconciliation_worker.start()
+
     ws_worker = threading.Thread(
         target=lambda: app.state.ws_client.run_with_reconnect(
             connect_once=lambda: app.state.ws_client.connect_and_subscribe(
@@ -57,6 +61,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.reconciliation_worker.stop()
         app.state.ws_client.stop()
         ws_worker.join(timeout=1.0)
         print("[WS][ws_worker_stop] thread=kis-ws-worker", flush=True)
@@ -75,3 +80,4 @@ app.state.quote_gateway_service = QuoteGatewayService(
     quote_cache=quote_cache,
     rest_client=_DemoRestQuoteClient(),
 )
+app.state.reconciliation_worker = ReconciliationService(order_queue=order_queue)
