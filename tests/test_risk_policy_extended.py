@@ -3,8 +3,10 @@ from datetime import datetime as real_datetime
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.api import routes
+from app.main import app
 from app.schemas.risk import RiskCheckRequest
 from app.services import risk_policy
 
@@ -59,11 +61,18 @@ class RiskPolicyExtendedTest(unittest.TestCase):
         self.assertEqual(ctx.exception.detail, 'INVALID_TRANSITION')
 
     def test_route_check_risk_uses_extended_guard(self):
-        req = RiskCheckRequest(account_id='A1', symbol='005930', side='BUY', qty=1, price=70000)
+        client = TestClient(app)
         with patch('app.api.routes.datetime') as mock_datetime:
             mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
-            result = routes.check_risk(req)
-        self.assertEqual(result, {'ok': True, 'reason': None})
+            res = client.post('/v1/risk/check', json={
+                'account_id': 'A1',
+                'symbol': '005930',
+                'side': 'BUY',
+                'qty': 1,
+                'price': 70000,
+            })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {'ok': True, 'reason': None})
 
 
 if __name__ == '__main__':

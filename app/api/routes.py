@@ -57,7 +57,9 @@ def _ensure_transition_allowed(*, current_status: str, action: str) -> None:
 
 
 
-def _make_sell_qty_provider(request: Request):
+def _make_sell_qty_provider(request: Request | None):
+    if request is None:
+        return None
     rest_client = request.app.state.quote_gateway_service.rest_client
     if not hasattr(rest_client, 'get_positions'):
         return None
@@ -197,16 +199,24 @@ def create_order(req: OrderRequest, request: Request, idempotency_key: str | Non
     if contract_error:
         raise HTTPException(status_code=400, detail=contract_error)
 
-    risk_result = check_risk(
-        RiskCheckRequest(
-            account_id=req.account_id,
-            symbol=req.symbol,
-            side=req.side,
-            qty=req.qty,
-            price=req.price,
-        ),
-        request=request,
+    risk_req = RiskCheckRequest(
+        account_id=req.account_id,
+        symbol=req.symbol,
+        side=req.side,
+        qty=req.qty,
+        price=req.price,
     )
+
+    risk_result = check_risk(risk_req, request=request)
+    if req.side == 'SELL' and risk_result == {'ok': False, 'reason': 'POSITION_PROVIDER_UNAVAILABLE'}:
+        risk_result = evaluate_trade_risk(
+            risk_req,
+            live_enabled=_LIVE_TRADING_ENABLED,
+            daily_order_count=_current_daily_order_count(),
+            daily_order_limit=_DAILY_ORDER_LIMIT,
+            max_qty=_MAX_ORDER_QTY,
+            get_available_sell_qty=get_available_sell_qty,
+        )
     if not risk_result['ok']:
         raise HTTPException(status_code=400, detail=risk_result['reason'])
 
@@ -311,6 +321,8 @@ def modify_order(order_id: str, req: OrderModifyRequest):
 
 @router.get('/balances', response_model=list[Balance])
 def get_balances(account_id: str, request: Request):
+    if request is None:
+        return None
     rest_client = request.app.state.quote_gateway_service.rest_client
     if not hasattr(rest_client, 'get_balances'):
         raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
@@ -319,6 +331,8 @@ def get_balances(account_id: str, request: Request):
 
 @router.get('/positions', response_model=list[Position])
 def get_positions(account_id: str, request: Request):
+    if request is None:
+        return None
     rest_client = request.app.state.quote_gateway_service.rest_client
     if not hasattr(rest_client, 'get_positions'):
         raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
