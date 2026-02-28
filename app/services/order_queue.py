@@ -41,6 +41,7 @@ class OrderQueue:
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
             "error": None,
+            "broker_order_id": None,
         }
         self.queue.append(oid)
         self.idem[idem_key] = accepted
@@ -48,7 +49,23 @@ class OrderQueue:
         self.metrics_counters["accepted"] += 1
         return accepted
 
-    def process_next(self, success: bool = True, reason: str | None = None) -> dict | None:
+    @staticmethod
+    def _map_adapter_error(exc: Exception) -> str:
+        text = str(exc).upper()
+        if "RATE_LIMIT" in text or "429" in text:
+            return "RATE_LIMIT"
+        if "AUTH" in text or "TOKEN" in text:
+            return "AUTH"
+        if "INVALID_ORDER" in text or "INVALID" in text:
+            return "INVALID_ORDER"
+        return "UNKNOWN"
+
+    def process_next(
+        self,
+        success: bool = True,
+        reason: str | None = None,
+        adapter=None,
+    ) -> dict | None:
         if not self.queue:
             return None
 
@@ -56,6 +73,29 @@ class OrderQueue:
         job = self.jobs[oid]
         job["status"] = "DISPATCHING"
         job["updated_at"] = int(time.time())
+
+        if adapter is not None:
+            req = job["request"]
+            try:
+                result = adapter.place_order(
+                    account_id=req["account_id"],
+                    symbol=req["symbol"],
+                    side=req["side"],
+                    qty=req["qty"],
+                    price=req.get("price"),
+                    order_type=req.get("order_type", "LIMIT"),
+                )
+                job["status"] = "SENT"
+                job["broker_order_id"] = result.get("broker_order_id")
+                self.metrics_counters["sent"] += 1
+            except Exception as exc:  # pragma: no cover - narrow mapping is unit tested
+                job["status"] = "REJECTED"
+                job["error"] = self._map_adapter_error(exc)
+                self.metrics_counters["rejected"] += 1
+
+            job["updated_at"] = int(time.time())
+            self.metrics_counters["processed"] += 1
+            return job
 
         if success:
             job["status"] = "SENT"
