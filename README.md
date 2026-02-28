@@ -72,10 +72,8 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 상세 운영 절차: `docs/ops/kis-quote-runbook.md`
 주문 실검증 체크리스트: `docs/ops/kis-order-live-validation-checklist.md`
 
-## API Docs (GitHub Pages)
-- Pages: `https://rbitts.github.io/kis-trading-gateway-repo/`
-- Redoc Live: `https://rbitts.github.io/kis-trading-gateway-repo/redoc-live.html`
-- Redoc Next: `https://rbitts.github.io/kis-trading-gateway-repo/redoc-next.html`
+## API Docs
+- Consumer Markdown Guide: `docs/api/consumer-api-guide.md`
 - Raw specs: `./docs/site/api/openapi-live.json`, `./docs/site/api/openapi-next.yaml`
 
 ## Quick API Check
