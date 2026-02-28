@@ -37,6 +37,21 @@ class SmokeTest(unittest.TestCase):
         self.assertTrue(live.exists())
         self.assertTrue(next_yaml.exists())
 
+    def test_api_docs_pages_workflow_and_readme_references(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow = (repo_root / '.github/workflows/api-docs-pages.yml').read_text(encoding='utf-8')
+        readme = (repo_root / 'README.md').read_text(encoding='utf-8')
+
+        self.assertIn('branches:', workflow)
+        self.assertIn('- main', workflow)
+        self.assertIn('upload-pages-artifact', workflow)
+        self.assertIn('path: docs/site', workflow)
+        self.assertIn('api-docs-pages', workflow)
+
+        self.assertIn('https://rbitts.github.io/kis-trading-gateway-repo/', readme)
+        self.assertIn('redoc-live.html', readme)
+        self.assertIn('redoc-next.html', readme)
+
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
         readme = (repo_root / 'README.md').read_text(encoding='utf-8')

@@ -27,6 +27,11 @@
 }
 ```
 
+## Public API Docs (GitHub Pages)
+- Hub: `https://rbitts.github.io/kis-trading-gateway-repo/`
+- Redoc Live: `https://rbitts.github.io/kis-trading-gateway-repo/redoc-live.html`
+- Redoc Next: `https://rbitts.github.io/kis-trading-gateway-repo/redoc-next.html`
+
 ## Next Contract Endpoints (OpenAPI Draft)
 - `POST /v1/orders/{order_id}/cancel` (`operationId: cancelOrder`)
 - `POST /v1/orders/{order_id}/modify` (`operationId: modifyOrder`)
