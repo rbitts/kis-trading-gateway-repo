@@ -22,6 +22,8 @@ def evaluate_side_policy(
 
     if req.side == 'SELL':
         available_qty = get_available_sell_qty(req.account_id, req.symbol)
+        if available_qty is None:
+            return {'ok': False, 'reason': 'POSITION_PROVIDER_UNAVAILABLE'}
         if req.qty > available_qty:
             return {'ok': False, 'reason': 'INSUFFICIENT_POSITION_QTY'}
         return {'ok': True, 'reason': None}

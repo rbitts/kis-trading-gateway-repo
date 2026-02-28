@@ -12,6 +12,14 @@ from app.services.quote_cache import quote_cache, quote_ingest_worker
 from app.services.session_state import SessionOrchestrator, session_orchestrator
 
 
+class _PositionsRestClient:
+    def __init__(self, positions):
+        self._positions = positions
+
+    def get_positions(self, account_id: str):
+        return [dict(row, account_id=account_id) for row in self._positions]
+
+
 class Iteration1Test(unittest.TestCase):
     def setUp(self):
         quote_cache._rows.clear()
@@ -208,6 +216,10 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(r.json(), {'ok': False, 'reason': 'NOTIONAL_LIMIT_EXCEEDED'})
 
     def test_risk_check_sell_requires_position_qty(self):
+        app.state.quote_gateway_service.rest_client = _PositionsRestClient(positions=[
+            {'symbol': '005930', 'qty': 0},
+        ])
+
         with patch('app.api.routes.datetime') as mock_datetime:
             mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
             r = self.client.post('/v1/risk/check', json={
@@ -218,8 +230,11 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(r.json(), {'ok': False, 'reason': 'INSUFFICIENT_POSITION_QTY'})
 
     def test_risk_check_sell_notional_limit_not_applied(self):
-        with patch('app.api.routes.datetime') as mock_datetime, \
-                patch('app.api.routes.get_available_sell_qty', return_value=1000):
+        app.state.quote_gateway_service.rest_client = _PositionsRestClient(positions=[
+            {'symbol': '005930', 'qty': 1000},
+        ])
+
+        with patch('app.api.routes.datetime') as mock_datetime:
             mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
             r = self.client.post('/v1/risk/check', json={
                 'account_id': 'A1', 'symbol': '005930', 'side': 'SELL', 'qty': 200, 'price': 70000
@@ -227,6 +242,19 @@ class Iteration1Test(unittest.TestCase):
 
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {'ok': True, 'reason': None})
+
+
+    def test_risk_check_sell_provider_unavailable(self):
+        app.state.quote_gateway_service.rest_client = object()
+
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/risk/check', json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'SELL', 'qty': 1, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'ok': False, 'reason': 'POSITION_PROVIDER_UNAVAILABLE'})
 
     def test_risk_check_trading_window_inside_window(self):
         with patch('app.api.routes.datetime') as mock_datetime:

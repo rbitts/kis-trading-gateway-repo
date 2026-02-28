@@ -53,6 +53,25 @@ def _ensure_transition_allowed(*, current_status: str, action: str) -> None:
     if not transition_result['ok']:
         raise HTTPException(status_code=400, detail=transition_result['reason'])
 
+
+
+def _make_sell_qty_provider(request: Request):
+    rest_client = request.app.state.quote_gateway_service.rest_client
+    if not hasattr(rest_client, 'get_positions'):
+        return None
+
+    def _provider(account_id: str, symbol: str) -> int:
+        positions = rest_client.get_positions(account_id)
+        for row in positions:
+            if str(row.get('symbol', '')).strip() == symbol:
+                try:
+                    return int(row.get('qty', 0) or 0)
+                except (TypeError, ValueError):
+                    return 0
+        return 0
+
+    return _provider
+
 def _validate_order_contract(req: OrderRequest) -> str | None:
     if req.side not in _ALLOWED_SIDES:
         return 'INVALID_SIDE'
@@ -112,12 +131,16 @@ def get_quotes(symbols: str, request: Request):
 
 
 @router.post('/risk/check')
-def check_risk(req: RiskCheckRequest):
+def check_risk(req: RiskCheckRequest, request: Request):
     if req.qty < 1:
         return {'ok': False, 'reason': 'INVALID_QTY'}
 
     if req.price is not None and req.price <= 0:
         return {'ok': False, 'reason': 'INVALID_PRICE'}
+
+    sell_qty_provider = _make_sell_qty_provider(request)
+    if req.side == 'SELL' and sell_qty_provider is None:
+        return {'ok': False, 'reason': 'POSITION_PROVIDER_UNAVAILABLE'}
 
     trade_risk_result = evaluate_trade_risk(
         req,
@@ -125,7 +148,7 @@ def check_risk(req: RiskCheckRequest):
         daily_order_count=_current_daily_order_count(),
         daily_order_limit=_DAILY_ORDER_LIMIT,
         max_qty=_MAX_ORDER_QTY,
-        get_available_sell_qty=get_available_sell_qty,
+        get_available_sell_qty=sell_qty_provider or get_available_sell_qty,
     )
     if not trade_risk_result['ok']:
         return trade_risk_result
@@ -138,7 +161,7 @@ def check_risk(req: RiskCheckRequest):
 
 
 @router.post('/orders', response_model=OrderAccepted)
-def create_order(req: OrderRequest, idempotency_key: str | None = Header(default=None, alias='Idempotency-Key')):
+def create_order(req: OrderRequest, request: Request, idempotency_key: str | None = Header(default=None, alias='Idempotency-Key')):
     if not idempotency_key:
         raise HTTPException(status_code=400, detail='Idempotency-Key header required')
 
@@ -153,7 +176,8 @@ def create_order(req: OrderRequest, idempotency_key: str | None = Header(default
             side=req.side,
             qty=req.qty,
             price=req.price,
-        )
+        ),
+        request=request,
     )
     if not risk_result['ok']:
         raise HTTPException(status_code=400, detail=risk_result['reason'])
