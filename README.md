@@ -74,11 +74,31 @@ curl -s http://127.0.0.1:8890/v1/session/status | jq
 # quote
 curl -s "http://127.0.0.1:8890/v1/quotes/005930" | jq
 
-# order with idempotency
+# BUY 주문 + 상태조회
+BUY_ORDER_ID=$(curl -s -X POST http://127.0.0.1:8890/v1/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: sample-buy-k1' \
+  -d '{"account_id":"A1","symbol":"005930","side":"BUY","qty":1,"price":70000,"order_type":"LIMIT"}' | jq -r '.order_id')
+curl -s http://127.0.0.1:8890/v1/orders/${BUY_ORDER_ID} | jq
+
+# BUY 멱등성 재호출(동일 key+동일 body)
 curl -s -X POST http://127.0.0.1:8890/v1/orders \
   -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: sample-k1' \
-  -d '{"account_id":"A1","symbol":"005930","side":"BUY","qty":1}' | jq
+  -H 'Idempotency-Key: sample-buy-k1' \
+  -d '{"account_id":"A1","symbol":"005930","side":"BUY","qty":1,"price":70000,"order_type":"LIMIT"}' | jq
+
+# SELL 주문 + 상태조회
+SELL_ORDER_ID=$(curl -s -X POST http://127.0.0.1:8890/v1/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: sample-sell-k1' \
+  -d '{"account_id":"A1","symbol":"005930","side":"SELL","qty":1,"price":70000,"order_type":"LIMIT"}' | jq -r '.order_id')
+curl -s http://127.0.0.1:8890/v1/orders/${SELL_ORDER_ID} | jq
+
+# SELL 멱등성 충돌(동일 key+상이 body => 409)
+curl -s -X POST http://127.0.0.1:8890/v1/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: sample-sell-k1' \
+  -d '{"account_id":"A1","symbol":"005930","side":"SELL","qty":2,"price":70000,"order_type":"LIMIT"}' | jq
 
 # metrics
 curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
