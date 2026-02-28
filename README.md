@@ -74,6 +74,8 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 
 ## API Docs
 - Consumer Markdown Guide: `docs/api/consumer-api-guide.md`
+- Redoc (Live): `https://rbitts.github.io/kis-trading-gateway-repo/redoc-live.html`
+- Redoc (Next): `https://rbitts.github.io/kis-trading-gateway-repo/redoc-next.html`
 - Raw specs: `./docs/site/api/openapi-live.json`, `./docs/site/api/openapi-next.yaml`
 
 ## Quick API Check
