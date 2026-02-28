@@ -10,9 +10,15 @@
 export KIS_APP_KEY="..."
 export KIS_APP_SECRET="..."
 export KIS_ACCOUNT_NO="12345678-01"
-export KIS_ENV="mock"   # mock | live
+export KIS_ENV="live"   # mock | live
+export KIS_MOCK=false
 export KIS_WS_SYMBOLS="005930,000660"  # 런타임 WS subscribe 대상(콤마 구분)
 ```
+
+안전 가드(실거래소 검증 시):
+- 본 검증은 **read-only** 점검이다.
+- **주문 금지**: 주문/정정/취소 API 호출 금지.
+- 증거 로그/문서에는 APP_KEY/APP_SECRET/계좌번호를 마스킹한다.
 
 앱 실행:
 
