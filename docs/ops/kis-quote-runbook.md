@@ -40,6 +40,18 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 - 앱 shutdown 시 WS client stop이 호출되도록 구현됨
 - 배포/재기동 시 **graceful stop 후 재시작** 권장
 
+### 2-1) Live WS 연결 검증 체크리스트
+1. **Approval Key 발급 확인**
+   - 기동 직후 로그에서 approval key 발급 성공 이벤트 확인
+   - 실패 시 `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ENV(live)` 값 우선 재검증
+2. **WebSocket 연결 + subscribe ACK 확인**
+   - `/v1/metrics/quote`에서 `ws_connected=true` 확인
+   - subscribe ACK(성공 코드) 및 초기 실시간 메시지 수신 로그 확인
+3. **WS 지표 정상성 확인**
+   - `ws_messages`가 시간 경과에 따라 증가
+   - `last_ws_message_ts`가 최근 시각으로 지속 갱신
+   - `ws_heartbeat_fresh=true`, `ws_last_error` 비정상 값 없음
+
 ## 3) 장중/장외 기대 동작 (WS vs REST)
 
 - 장중(09:00~15:30 KST):
