@@ -168,6 +168,9 @@ class KisWsClient:
                 if not self.running:
                     return False
 
+                if attempt == max_retries - 1:
+                    break
+
                 backoff = min(backoff_base_sec * (2**attempt), backoff_cap_sec)
                 sleep_fn(backoff)
 
