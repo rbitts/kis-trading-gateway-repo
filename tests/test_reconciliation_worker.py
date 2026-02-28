@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
@@ -60,6 +62,36 @@ class TestReconciliationService(unittest.TestCase):
         self.assertEqual(result["mismatched"], 0)
         self.assertEqual(result["corrected"], 0)
         self.assertEqual(result["events"], [])
+
+    def test_reconcile_persists_events_and_recovers_recent_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            event_log_path = Path(tmpdir) / "reconciliation-events.jsonl"
+
+            accepted = order_queue.enqueue(
+                OrderRequest(account_id="A1", symbol="005930", side="BUY", qty=1, price=70000),
+                "idem-reconcile-3",
+            )
+            order_queue.jobs[accepted.order_id]["status"] = "SENT"
+
+            worker = ReconciliationService(
+                order_queue=order_queue,
+                broker_status_provider=lambda _order_id, _job: "FILLED",
+                event_log_path=event_log_path,
+            )
+            worker.reconcile_once()
+
+            self.assertTrue(event_log_path.exists())
+            self.assertEqual(len(event_log_path.read_text(encoding="utf-8").splitlines()), 1)
+
+            recovered_worker = ReconciliationService(
+                order_queue=order_queue,
+                broker_status_provider=lambda _order_id, _job: None,
+                event_log_path=event_log_path,
+            )
+            metrics = recovered_worker.metrics()
+            self.assertEqual(metrics["persisted_count"], 1)
+            self.assertEqual(len(metrics["recent_events"]), 1)
+            self.assertEqual(metrics["recent_events"][0]["order_id"], accepted.order_id)
 
 
 class TestMainWiringForReconciliationWorker(unittest.TestCase):

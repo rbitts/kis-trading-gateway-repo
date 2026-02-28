@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 
@@ -12,6 +14,7 @@ class ReconciliationService:
         order_queue,
         broker_status_provider: Callable[[str, dict], str | None] | None = None,
         interval_sec: float = 5.0,
+        event_log_path: str | Path | None = None,
     ) -> None:
         self.order_queue = order_queue
         self.broker_status_provider = broker_status_provider or (lambda _order_id, _job: None)
@@ -25,11 +28,39 @@ class ReconciliationService:
             "corrected": 0,
         }
         self._recent_events: list[dict] = []
+        self._event_log_path = Path(event_log_path) if event_log_path else None
+        self._persisted_count = 0
+        self._load_persisted_events()
+
+    def _load_persisted_events(self) -> None:
+        if not self._event_log_path or not self._event_log_path.exists():
+            return
+
+        for line in self._event_log_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            self._persisted_count += 1
+            self._recent_events.append(event)
+
+        if len(self._recent_events) > 100:
+            self._recent_events = self._recent_events[-100:]
 
     def _record_event(self, event: dict) -> None:
         self._recent_events.append(event)
         if len(self._recent_events) > 100:
             self._recent_events = self._recent_events[-100:]
+
+        if not self._event_log_path:
+            return
+
+        self._event_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._event_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        self._persisted_count += 1
 
     def _apply_correction(self, *, job: dict, broker_status: str) -> str:
         corrected_status = broker_status
@@ -114,5 +145,6 @@ class ReconciliationService:
     def metrics(self) -> dict:
         return {
             **self._metrics,
+            "persisted_count": self._persisted_count,
             "recent_events": list(self._recent_events),
         }
