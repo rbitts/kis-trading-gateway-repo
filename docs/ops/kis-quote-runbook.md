@@ -2,6 +2,11 @@
 
 운영 목적: `/v1/quotes*`가 장중/장외 모두에서 시세를 안정적으로 반환하도록 점검/대응한다.
 
+## 0) Live validation 진입 게이트(고정)
+1. 제한적 주문 검증 전 반드시 `GET /v1/session/live-readiness`를 먼저 확인한다.
+2. `can_trade=true`일 때만 `docs/ops/kis-order-live-validation-checklist.md`의 "제한적 주문 허용 단계"로 진입한다.
+3. `can_trade=false`이면 자격증명/WS blocker 해소 전까지 제한적 주문 검증 단계 진입 금지.
+
 ## 1) Env / Config 설정
 
 필수 환경변수:
