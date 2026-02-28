@@ -132,6 +132,8 @@ curl -s -X POST http://127.0.0.1:8890/v1/orders/{order_id}/cancel | jq
 - terminal 주문 대상 정정/취소는 409
 - 리스크 가드(`LIVE_DISABLED`, `DAILY_LIMIT_EXCEEDED`, `MAX_QTY_EXCEEDED`) 동작 여부 확인
 
+주문 실브로커 검증은 `docs/ops/kis-order-live-validation-checklist.md`를 기준으로 수행한다.
+
 ## 6) 잔고/포지션 조회 체크
 
 ```bash
@@ -141,7 +143,7 @@ curl -s "http://127.0.0.1:8890/v1/positions?account_id=A1" | jq
 
 판단 포인트:
 - 응답은 리스트 스키마 유지
-- KIS 연동 미구성 시 빈 리스트 반환 가능(환경 구성 확인 필요)
+- KIS 연동 미구성 시 `PORTFOLIO_PROVIDER_NOT_CONFIGURED`(HTTP 503) 반환
 
 ## 7) Reconciliation 워커 체크
 

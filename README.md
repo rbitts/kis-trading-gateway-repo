@@ -65,6 +65,7 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 - 인증(token): 토큰 발급/갱신 실패 시 APP_KEY/APP_SECRET 및 환경(mock/live) 재확인
 
 상세 운영 절차: `docs/ops/kis-quote-runbook.md`
+주문 실검증 체크리스트: `docs/ops/kis-order-live-validation-checklist.md`
 
 ## Quick API Check
 ```bash
