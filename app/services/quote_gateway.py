@@ -35,6 +35,11 @@ class QuoteGatewayService:
         snapshot.state = "HEALTHY" if age <= self.stale_after_sec else "STALE"
         return age <= self.stale_after_sec
 
+    def _prune_expired_cooldowns(self, now: int) -> None:
+        expired = [s for s, until in self._rest_symbol_cooldown_until.items() if until <= now]
+        for s in expired:
+            self._rest_symbol_cooldown_until.pop(s, None)
+
     def _is_symbol_cooldown(self, symbol: str, now: int) -> bool:
         until = self._rest_symbol_cooldown_until.get(symbol, 0)
         return now < until
@@ -76,6 +81,7 @@ class QuoteGatewayService:
 
     def get_quote(self, symbol: str) -> QuoteSnapshot:
         now = int(time.time())
+        self._prune_expired_cooldowns(now)
         if self._is_symbol_cooldown(symbol, now):
             cached = self.quote_cache.get(symbol)
             if cached is not None:
