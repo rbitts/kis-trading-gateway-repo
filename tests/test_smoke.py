@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime as real_datetime
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,16 @@ from app.main import app
 
 
 class SmokeTest(unittest.TestCase):
+    def test_docs_live_validation_checklist_links(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        readme = (repo_root / 'README.md').read_text(encoding='utf-8')
+        runbook = (repo_root / 'docs/ops/kis-quote-runbook.md').read_text(encoding='utf-8')
+        checklist_path = repo_root / 'docs/ops/kis-order-live-validation-checklist.md'
+
+        self.assertTrue(checklist_path.exists())
+        self.assertIn('kis-order-live-validation-checklist.md', readme)
+        self.assertIn('kis-order-live-validation-checklist.md', runbook)
+
     def test_quotes_order_modify_cancel_and_portfolio(self):
         c = TestClient(app)
 
@@ -42,10 +53,10 @@ class SmokeTest(unittest.TestCase):
         # portfolio endpoints contract
         balances = c.get('/v1/balances', params={'account_id': 'A1'})
         positions = c.get('/v1/positions', params={'account_id': 'A1'})
-        self.assertEqual(balances.status_code, 200)
-        self.assertEqual(positions.status_code, 200)
-        self.assertIsInstance(balances.json(), list)
-        self.assertIsInstance(positions.json(), list)
+        self.assertEqual(balances.status_code, 503)
+        self.assertEqual(positions.status_code, 503)
+        self.assertEqual(balances.json(), {'detail': 'PORTFOLIO_PROVIDER_NOT_CONFIGURED'})
+        self.assertEqual(positions.json(), {'detail': 'PORTFOLIO_PROVIDER_NOT_CONFIGURED'})
 
 
 if __name__ == '__main__':
