@@ -5,8 +5,26 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from app.api import routes
 from app.main import app
 from app.services.order_queue import order_queue
+
+
+class _E2ERestClient:
+    def get_quote(self, symbol: str):
+        return {
+            'symbol': symbol,
+            'price': 70000.0,
+            'change_pct': 0.0,
+            'turnover': 0.0,
+            'source': 'kis-rest',
+            'ts': 1700000000,
+        }
+
+    def get_positions(self, account_id: str):
+        return [
+            {'account_id': account_id, 'symbol': '005930', 'qty': 5},
+        ]
 
 
 class TestOrderE2EBuySell(unittest.TestCase):
@@ -26,6 +44,8 @@ class TestOrderE2EBuySell(unittest.TestCase):
             "retry_exhausted": 0,
             "terminal": 0,
         }
+        routes._daily_order_count = 0
+        app.state.quote_gateway_service.rest_client = _E2ERestClient()
         self.client = TestClient(app)
 
     def test_buy_then_status_and_idempotency(self):

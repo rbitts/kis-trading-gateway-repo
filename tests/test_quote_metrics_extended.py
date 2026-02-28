@@ -19,6 +19,9 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
 
         app.state.quote_gateway_service.rest_fallbacks = 0
         app.state.quote_gateway_service.market_open_checker = lambda: False
+        app.state.ws_client.last_error = None
+        app.state.ws_client.reconnect_count = 0
+        app.state.ws_client.running = False
         self.client = TestClient(app)
 
     def test_quote_metrics_contains_operational_fields(self):
