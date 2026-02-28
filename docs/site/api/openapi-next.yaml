@@ -1,0 +1,228 @@
+openapi: 3.0.3
+info:
+  title: KIS Trading Gateway Next API
+  version: 0.1.0-next
+  description: >-
+    Contract-first spec. Clients should integrate by operationId and schemas.
+    Endpoint path naming may evolve while operationId + request/response schemas remain backward-compatible.
+paths:
+  /v1/orders:
+    post:
+      operationId: createOrder
+      summary: Create a new order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+      responses:
+        '200':
+          description: Order accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAccepted'
+        '400':
+          description: Contract or risk violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/orders/{order_id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Cancel an existing order
+      parameters:
+        - in: path
+          name: order_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancel accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAccepted'
+        '400':
+          description: Invalid transition or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/orders/{order_id}/modify:
+    post:
+      operationId: modifyOrder
+      summary: Modify an existing order
+      parameters:
+        - in: path
+          name: order_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderModifyRequest'
+      responses:
+        '200':
+          description: Modify accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAccepted'
+        '400':
+          description: Invalid transition or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/balances:
+    get:
+      operationId: getBalances
+      summary: Retrieve account balances
+      responses:
+        '200':
+          description: Balance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Balance'
+  /v1/positions:
+    get:
+      operationId: getPositions
+      summary: Retrieve account positions
+      responses:
+        '200':
+          description: Position list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+  /v1/orders/reconcile:
+    post:
+      operationId: reconcileOrders
+      summary: Reconcile internal and broker order states
+      responses:
+        '200':
+          description: Reconciliation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResult'
+components:
+  schemas:
+    OrderCreateRequest:
+      type: object
+      required:
+        - account_id
+        - symbol
+        - side
+        - qty
+      properties:
+        account_id:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [BUY, SELL]
+        qty:
+          type: integer
+          minimum: 1
+        order_type:
+          type: string
+          enum: [LIMIT, MARKET]
+          default: LIMIT
+        price:
+          type: number
+          nullable: true
+        strategy_id:
+          type: string
+          nullable: true
+    OrderModifyRequest:
+      type: object
+      required:
+        - qty
+      properties:
+        qty:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+          nullable: true
+    OrderAccepted:
+      type: object
+      required:
+        - order_id
+        - status
+        - idempotency_key
+      properties:
+        order_id:
+          type: string
+        status:
+          type: string
+        idempotency_key:
+          type: string
+    Error:
+      type: object
+      required:
+        - code
+        - message
+        - retryable
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_QTY
+            - INVALID_PRICE
+            - INVALID_SIDE
+            - NOTIONAL_LIMIT_EXCEEDED
+            - INSUFFICIENT_POSITION_QTY
+            - OUT_OF_TRADING_WINDOW
+            - LIVE_DISABLED
+            - DAILY_LIMIT_EXCEEDED
+            - MAX_QTY_EXCEEDED
+            - INVALID_TRANSITION
+        message:
+          type: string
+        retryable:
+          type: boolean
+    Balance:
+      type: object
+      required: [account_id, currency, cash_available]
+      properties:
+        account_id:
+          type: string
+        currency:
+          type: string
+        cash_available:
+          type: number
+    Position:
+      type: object
+      required: [account_id, symbol, qty]
+      properties:
+        account_id:
+          type: string
+        symbol:
+          type: string
+        qty:
+          type: integer
+    ReconcileResult:
+      type: object
+      required: [checked, mismatched, updated]
+      properties:
+        checked:
+          type: integer
+        mismatched:
+          type: integer
+        updated:
+          type: integer
