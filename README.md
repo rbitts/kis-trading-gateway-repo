@@ -29,6 +29,15 @@ export KIS_ENV="mock"  # mock | live
 export KIS_WS_SYMBOLS="005930,000660"  # 런타임 WS subscribe 대상(콤마 구분)
 ```
 
+### Mock env 파일로 실행 (권장)
+```bash
+cp env/mock.env.example env/mock.env
+# env/mock.env 값 채운 뒤
+./scripts/run_mock_server.sh
+```
+
+> `env/mock.env`가 없으면 `KIS_MOCK_APP_KEY`, `KIS_MOCK_APP_SECRET`, `KIS_MOCK_CANO`, `KIS_MOCK_ACNT_PRDT_CD_KR` 환경변수를 fallback으로 사용합니다.
+
 ### Startup/Lifecycle 점검
 ```bash
 curl -s http://127.0.0.1:8890/v1/session/status | jq
