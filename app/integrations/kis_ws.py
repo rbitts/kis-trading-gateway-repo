@@ -83,7 +83,12 @@ def parse_message(payload: dict | str) -> Dict[str, Any]:
 
 
 class KisWsClient:
-    """KIS websocket client skeleton (network connection intentionally omitted)."""
+    """KIS websocket client with subscribe and ingest callback flow."""
+
+    _WS_URLS = {
+        "mock": "wss://openapivts.koreainvestment.com:21000",
+        "live": "wss://openapi.koreainvestment.com:21000",
+    }
 
     def __init__(
         self,
@@ -95,6 +100,8 @@ class KisWsClient:
         custtype: str = "P",
         tr_type: str = "1",
         content_type: str = "utf-8",
+        env: str = "mock",
+        websocket_app_factory: Optional[Callable[..., Any]] = None,
     ) -> None:
         self._on_message = on_message
         self.running = False
@@ -106,6 +113,17 @@ class KisWsClient:
         self.content_type = content_type
         self.last_error: str | None = None
         self.reconnect_count = 0
+        self.env = env
+        self._websocket_app_factory = websocket_app_factory or self._default_websocket_app_factory
+
+    @property
+    def ws_url(self) -> str:
+        return self._WS_URLS.get(self.env, self._WS_URLS["mock"])
+
+    def _default_websocket_app_factory(self, *args: Any, **kwargs: Any) -> Any:
+        from websocket import WebSocketApp
+
+        return WebSocketApp(*args, **kwargs)
 
     def start(self) -> None:
         self.running = True
@@ -115,7 +133,6 @@ class KisWsClient:
 
     def set_on_message(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         self._on_message = callback
-
 
     def ensure_approval_key(self) -> str:
         if self.approval_key:
@@ -147,6 +164,28 @@ class KisWsClient:
         if self._on_message is not None:
             self._on_message(quote)
         return quote
+
+    def connect_and_subscribe(self, symbols: list[str], *, run_forever: bool = True) -> Any:
+        self.ensure_approval_key()
+
+        def _on_open(ws: Any) -> None:
+            for symbol in symbols:
+                message = self.build_subscribe_message(symbol)
+                ws.send(json.dumps(message))
+
+        def _on_message(_: Any, raw_message: Any) -> None:
+            self.handle_raw_message(raw_message)
+
+        ws_app = self._websocket_app_factory(
+            self.ws_url,
+            on_open=_on_open,
+            on_message=_on_message,
+        )
+
+        if run_forever:
+            ws_app.run_forever()
+
+        return ws_app
 
     def run_with_reconnect(
         self,
