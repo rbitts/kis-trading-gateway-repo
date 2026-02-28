@@ -159,6 +159,31 @@ class QuoteE2EMockKisTest(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['detail'], 'REST_RATE_LIMIT_COOLDOWN')
 
+    def test_app_runtime_path_returns_kis_ws_source_for_fresh_ws_message(self):
+        class NeverCallRestClient:
+            def get_quote(self, symbol: str) -> dict:  # pragma: no cover - guard path
+                raise AssertionError(f"rest fallback should not be called for {symbol}")
+
+        client = TestClient(app)
+        service = app.state.quote_gateway_service
+        original_checker = service.market_open_checker
+        original_rest_client = service.rest_client
+        service.market_open_checker = lambda: True
+        service.rest_client = NeverCallRestClient()
+
+        try:
+            with patch('app.services.quote_cache.time.time', return_value=1700000400), patch(
+                'app.services.quote_gateway.time.time', return_value=1700000400
+            ):
+                quote_ingest_worker.on_ws_message({'symbol': '005930', 'price': 72600, 'ts': 1700000399})
+                response = client.get('/v1/quotes/005930')
+        finally:
+            service.market_open_checker = original_checker
+            service.rest_client = original_rest_client
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['source'], 'kis-ws')
+
     def test_market_boundary_transition_open_to_closed_switches_source(self):
         state = {'open': True}
         client, rest_client = self._make_client_with_service(lambda: state['open'])

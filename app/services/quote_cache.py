@@ -56,7 +56,7 @@ class QuoteIngestWorker:
             price=float(payload["price"]),
             change_pct=float(payload.get("change_pct", 0.0)),
             turnover=float(payload.get("turnover", 0.0)),
-            source=str(payload.get("source", "ws")),
+            source=str(payload.get("source", "kis-ws")),
             ts=int(payload.get("ts", now)),
             freshness_sec=0.0,
             state="HEALTHY",
