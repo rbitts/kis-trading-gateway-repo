@@ -203,5 +203,71 @@ class QuoteE2EMockKisTest(unittest.TestCase):
         self.assertEqual(rest_client.calls, 1)
 
 
+    def test_runtime_ws_worker_feeds_cache_and_metrics_source_is_kis_ws(self):
+        class RuntimeWsClientStub:
+            def __init__(self):
+                self.env = 'mock'
+                self._approval_key_client = object()
+                self._stopped = False
+
+            def run_with_reconnect(self, *, connect_once):
+                connect_once()
+                return True
+
+            def connect_and_subscribe(self, *, symbols):
+                self.captured_symbols = list(symbols)
+                quote_ingest_worker.on_ws_message(
+                    {
+                        'symbol': symbols[0],
+                        'price': 73000,
+                        'change_pct': 0.5,
+                        'turnover': 321.0,
+                        'ts': 1700000500,
+                    }
+                )
+
+            def stop(self):
+                self._stopped = True
+
+        class NeverCallRestClient:
+            def get_quote(self, symbol: str) -> dict:  # pragma: no cover - guard path
+                raise AssertionError(f'rest fallback should not be called for {symbol}')
+
+        ws_stub = RuntimeWsClientStub()
+        original_ws_client = app.state.ws_client
+        original_service = app.state.quote_gateway_service
+        original_get_settings = app.state.get_settings
+
+        app.state.ws_client = ws_stub
+        app.state.quote_gateway_service = QuoteGatewayService(
+            quote_cache=quote_cache,
+            rest_client=NeverCallRestClient(),
+            market_open_checker=lambda: True,
+            stale_after_sec=5,
+        )
+        app.state.get_settings = lambda: type('S', (), {'KIS_WS_SYMBOLS': ['005930'], 'KIS_ENV': 'mock'})()
+
+        try:
+            with patch('app.services.quote_cache.time.time', return_value=1700000501), patch(
+                'app.services.quote_gateway.time.time', return_value=1700000501
+            ), TestClient(app) as client:
+                quote_res = client.get('/v1/quotes/005930')
+                metrics_res = client.get('/v1/metrics/quote')
+        finally:
+            app.state.ws_client = original_ws_client
+            app.state.quote_gateway_service = original_service
+            app.state.get_settings = original_get_settings
+
+        self.assertEqual(quote_res.status_code, 200)
+        self.assertEqual(quote_res.json()['source'], 'kis-ws')
+        self.assertEqual(quote_res.json()['price'], 73000.0)
+        self.assertEqual(metrics_res.status_code, 200)
+        self.assertEqual(metrics_res.json()['ws_messages'], 1)
+        self.assertTrue(metrics_res.json()['ws_connected'])
+        self.assertEqual(ws_stub.captured_symbols, ['005930'])
+        self.assertTrue(ws_stub._stopped)
+
+
+
 if __name__ == "__main__":
     unittest.main()
