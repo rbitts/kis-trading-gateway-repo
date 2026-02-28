@@ -19,6 +19,14 @@ class RiskPolicyTest(unittest.TestCase):
         )
         self.assertEqual(result, {'ok': False, 'reason': 'INSUFFICIENT_POSITION_QTY'})
 
+
+    def test_sell_returns_provider_unavailable_when_qty_lookup_missing(self):
+        result = evaluate_side_policy(
+            RiskCheckRequest(account_id='A1', symbol='005930', side='SELL', qty=1, price=70000),
+            get_available_sell_qty=lambda _a, _s: None,
+        )
+        self.assertEqual(result, {'ok': False, 'reason': 'POSITION_PROVIDER_UNAVAILABLE'})
+
     def test_sell_notional_limit_not_applied(self):
         result = evaluate_side_policy(
             RiskCheckRequest(account_id='A1', symbol='005930', side='SELL', qty=200, price=70000),
