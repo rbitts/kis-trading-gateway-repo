@@ -102,6 +102,7 @@ class KisWsClient:
         content_type: str = "utf-8",
         env: str = "mock",
         websocket_app_factory: Optional[Callable[..., Any]] = None,
+        on_state_change: Optional[Callable[..., None]] = None,
     ) -> None:
         self._on_message = on_message
         self.running = False
@@ -115,6 +116,17 @@ class KisWsClient:
         self.reconnect_count = 0
         self.env = env
         self._websocket_app_factory = websocket_app_factory or self._default_websocket_app_factory
+        self._on_state_change = on_state_change
+
+    def _emit_state(self, *, connected: bool, heartbeat_ts: int | None = None) -> None:
+        if self._on_state_change is None:
+            return
+        self._on_state_change(
+            connected=connected,
+            reconnect_count=self.reconnect_count,
+            last_error=self.last_error,
+            heartbeat_ts=heartbeat_ts,
+        )
 
     @property
     def ws_url(self) -> str:
@@ -127,9 +139,11 @@ class KisWsClient:
 
     def start(self) -> None:
         self.running = True
+        self._emit_state(connected=False)
 
     def stop(self) -> None:
         self.running = False
+        self._emit_state(connected=False)
 
     def set_on_message(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         self._on_message = callback
@@ -203,6 +217,7 @@ class KisWsClient:
         self.running = True
         self.last_error = None
         self.reconnect_count = 0
+        self._emit_state(connected=False)
 
         for attempt in range(max_retries):
             if not self.running:
@@ -211,10 +226,12 @@ class KisWsClient:
             try:
                 connect_once()
                 self.last_error = None
+                self._emit_state(connected=True, heartbeat_ts=int(time.time()))
                 return True
             except Exception as exc:
                 self.last_error = str(exc)
                 self.reconnect_count += 1
+                self._emit_state(connected=False)
 
                 if not self.running:
                     return False

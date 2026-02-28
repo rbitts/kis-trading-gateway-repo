@@ -14,6 +14,8 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
         quote_ingest_worker.ws_connected = False
         quote_ingest_worker.last_ws_message_ts = None
         quote_ingest_worker.last_ws_heartbeat_ts = None
+        quote_ingest_worker.ws_last_error = None
+        quote_ingest_worker.ws_reconnect_count = 0
 
         app.state.quote_gateway_service.rest_fallbacks = 0
         app.state.quote_gateway_service.market_open_checker = lambda: False
@@ -33,11 +35,15 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
         self.assertIn('ws_connected', payload)
         self.assertIn('ws_heartbeat_fresh', payload)
         self.assertIn('last_ws_message_ts', payload)
+        self.assertIn('ws_last_error', payload)
+        self.assertIn('ws_reconnect_count', payload)
 
         self.assertEqual(payload['rest_fallbacks'], 0)
         self.assertFalse(payload['ws_connected'])
         self.assertFalse(payload['ws_heartbeat_fresh'])
         self.assertIsNone(payload['last_ws_message_ts'])
+        self.assertIsNone(payload['ws_last_error'])
+        self.assertEqual(payload['ws_reconnect_count'], 0)
 
     def test_quote_metrics_updates_after_ws_and_rest_fallback(self):
         app.state.quote_gateway_service.get_quote('005930')
@@ -64,6 +70,19 @@ class QuoteMetricsExtendedTest(unittest.TestCase):
 
         self.assertTrue(payload['ws_connected'])
         self.assertFalse(payload['ws_heartbeat_fresh'])
+
+    def test_quote_metrics_syncs_ws_reconnect_state_from_ws_client(self):
+        app.state.ws_client.last_error = 'socket reset'
+        app.state.ws_client.reconnect_count = 4
+        app.state.ws_client.running = False
+
+        res = self.client.get('/v1/metrics/quote')
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+
+        self.assertEqual(payload['ws_last_error'], 'socket reset')
+        self.assertEqual(payload['ws_reconnect_count'], 4)
+        self.assertFalse(payload['ws_connected'])
 
 
 if __name__ == '__main__':

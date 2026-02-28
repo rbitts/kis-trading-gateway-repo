@@ -30,7 +30,13 @@ class QuoteCache:
 class QuoteIngestWorker:
     """MVP skeleton: websocket payload hook -> cache update + freshness calc."""
 
-    def __init__(self, cache: QuoteCache, stale_after_sec: int = 5, ws_heartbeat_timeout_sec: int = 10) -> None:
+    def __init__(
+        self,
+        cache: QuoteCache,
+        stale_after_sec: int = 5,
+        ws_heartbeat_timeout_sec: int = 10,
+        auto_sync_ws_state: bool = False,
+    ) -> None:
         self.cache = cache
         self.stale_after_sec = stale_after_sec
         self.ws_heartbeat_timeout_sec = ws_heartbeat_timeout_sec
@@ -41,6 +47,7 @@ class QuoteIngestWorker:
         self.last_ws_heartbeat_ts: int | None = None
         self.ws_last_error: str | None = None
         self.ws_reconnect_count = 0
+        self.auto_sync_ws_state = auto_sync_ws_state
 
     def on_ws_message(self, payload: dict) -> QuoteSnapshot:
         now = int(time.time())
@@ -62,6 +69,32 @@ class QuoteIngestWorker:
         self.last_ws_heartbeat_ts = now
         return snapshot
 
+    def sync_ws_state(
+        self,
+        *,
+        connected: bool,
+        reconnect_count: int,
+        last_error: str | None,
+        heartbeat_ts: int | None = None,
+    ) -> None:
+        self.ws_connected = bool(connected)
+        self.ws_reconnect_count = int(reconnect_count)
+        self.ws_last_error = last_error
+        if heartbeat_ts is not None:
+            self.last_ws_heartbeat_ts = int(heartbeat_ts)
+
+    def _sync_from_app_ws_client(self) -> None:
+        try:
+            from app.main import app
+
+            ws_client = getattr(app.state, "ws_client", None)
+            if ws_client is None:
+                return
+            self.ws_reconnect_count = int(getattr(ws_client, "reconnect_count", 0))
+            self.ws_last_error = getattr(ws_client, "last_error", None)
+        except Exception:
+            return
+
     def refresh_freshness(self, now: int | None = None) -> None:
         ref = int(time.time()) if now is None else now
         for row in self.cache.list_all():
@@ -70,6 +103,8 @@ class QuoteIngestWorker:
             row.state = "HEALTHY" if age <= self.stale_after_sec else "STALE"
 
     def metrics(self, now: int | None = None) -> dict:
+        if self.auto_sync_ws_state:
+            self._sync_from_app_ws_client()
         ref = int(time.time()) if now is None else now
         self.refresh_freshness(now=ref)
         rows = self.cache.list_all()
@@ -94,7 +129,7 @@ class QuoteIngestWorker:
 
 
 quote_cache = QuoteCache()
-quote_ingest_worker = QuoteIngestWorker(quote_cache)
+quote_ingest_worker = QuoteIngestWorker(quote_cache, auto_sync_ws_state=True)
 
 
 def seed_demo_quote(symbol: str) -> None:
