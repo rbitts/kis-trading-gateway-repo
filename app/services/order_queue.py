@@ -21,7 +21,14 @@ class OrderQueue:
             "processed": 0,
             "sent": 0,
             "rejected": 0,
+            "filled": 0,
+            "retried": 0,
+            "retry_exhausted": 0,
+            "terminal": 0,
         }
+
+    def _inc(self, key: str, value: int = 1) -> None:
+        self.metrics_counters[key] = self.metrics_counters.get(key, 0) + value
 
     def enqueue(self, req: OrderRequest, idem_key: str) -> OrderAccepted:
         body_hash = self._hash_request(req)
@@ -29,7 +36,7 @@ class OrderQueue:
         if idem_key in self.idem:
             if self.idem_body_hash.get(idem_key) != body_hash:
                 raise ValueError("IDEMPOTENCY_KEY_BODY_MISMATCH")
-            self.metrics_counters["deduplicated"] += 1
+            self._inc("deduplicated")
             return self.idem[idem_key]
 
         oid = f"ord_{int(time.time())}_{uuid.uuid4().hex[:8]}"
@@ -37,16 +44,19 @@ class OrderQueue:
         self.jobs[oid] = {
             "order_id": oid,
             "request": req.model_dump(),
-            "status": "QUEUED",
+            "status": "NEW",
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
             "error": None,
             "broker_order_id": None,
+            "attempts": 0,
+            "max_attempts": 3,
+            "terminal": False,
         }
         self.queue.append(oid)
         self.idem[idem_key] = accepted
         self.idem_body_hash[idem_key] = body_hash
-        self.metrics_counters["accepted"] += 1
+        self._inc("accepted")
         return accepted
 
     @staticmethod
@@ -60,6 +70,10 @@ class OrderQueue:
             return "INVALID_ORDER"
         return "UNKNOWN"
 
+    @staticmethod
+    def _is_retryable(error_code: str) -> bool:
+        return error_code in {"RATE_LIMIT", "UNKNOWN"}
+
     def process_next(
         self,
         success: bool = True,
@@ -71,11 +85,15 @@ class OrderQueue:
 
         oid = self.queue.popleft()
         job = self.jobs[oid]
+        if job.get("terminal"):
+            return job
+
         job["status"] = "DISPATCHING"
         job["updated_at"] = int(time.time())
 
         if adapter is not None:
             req = job["request"]
+            job["attempts"] = int(job.get("attempts", 0)) + 1
             try:
                 result = adapter.place_order(
                     account_id=req["account_id"],
@@ -86,27 +104,66 @@ class OrderQueue:
                     order_type=req.get("order_type", "LIMIT"),
                 )
                 job["status"] = "SENT"
+                job["error"] = None
                 job["broker_order_id"] = result.get("broker_order_id")
-                self.metrics_counters["sent"] += 1
-            except Exception as exc:  # pragma: no cover - narrow mapping is unit tested
-                job["status"] = "REJECTED"
-                job["error"] = self._map_adapter_error(exc)
-                self.metrics_counters["rejected"] += 1
+                self._inc("sent")
+            except Exception as exc:  # pragma: no cover
+                mapped_error = self._map_adapter_error(exc)
+                max_attempts = int(job.get("max_attempts", 3))
+                if self._is_retryable(mapped_error) and job["attempts"] < max_attempts:
+                    job["status"] = "NEW"
+                    job["error"] = mapped_error
+                    self.queue.append(oid)
+                    self._inc("retried")
+                else:
+                    if self._is_retryable(mapped_error) and job["attempts"] >= max_attempts:
+                        job["error"] = "RETRY_EXHAUSTED"
+                        self._inc("retry_exhausted")
+                    else:
+                        job["error"] = mapped_error
+                    job["status"] = "REJECTED"
+                    job["terminal"] = True
+                    self._inc("rejected")
+                    self._inc("terminal")
 
             job["updated_at"] = int(time.time())
-            self.metrics_counters["processed"] += 1
+            self._inc("processed")
             return job
 
         if success:
             job["status"] = "SENT"
-            self.metrics_counters["sent"] += 1
+            self._inc("sent")
         else:
             job["status"] = "REJECTED"
             job["error"] = reason or "unknown"
-            self.metrics_counters["rejected"] += 1
+            job["terminal"] = True
+            self._inc("rejected")
+            self._inc("terminal")
 
         job["updated_at"] = int(time.time())
-        self.metrics_counters["processed"] += 1
+        self._inc("processed")
+        return job
+
+    def mark_execution_result(self, order_id: str, status: str, reason: str | None = None) -> dict:
+        job = self.jobs[order_id]
+        normalized = status.upper()
+        if normalized not in {"FILLED", "REJECTED"}:
+            raise ValueError("INVALID_FINAL_STATUS")
+        if job.get("terminal"):
+            return job
+
+        job["status"] = normalized
+        job["terminal"] = True
+        job["updated_at"] = int(time.time())
+
+        if normalized == "FILLED":
+            job["error"] = None
+            self._inc("filled")
+        else:
+            job["error"] = reason or "BROKER_REJECTED"
+            self._inc("rejected")
+
+        self._inc("terminal")
         return job
 
     def get_status(self, order_id: str) -> str | None:
@@ -116,9 +173,21 @@ class OrderQueue:
         return str(job["status"])
 
     def metrics(self) -> dict:
+        base = {
+            "accepted": 0,
+            "deduplicated": 0,
+            "processed": 0,
+            "sent": 0,
+            "rejected": 0,
+            "filled": 0,
+            "retried": 0,
+            "retry_exhausted": 0,
+            "terminal": 0,
+        }
+        merged = {k: self.metrics_counters.get(k, 0) for k in base}
         return {
             "queue_depth": len(self.queue),
-            **self.metrics_counters,
+            **merged,
         }
 
     def _hash_request(self, req: OrderRequest) -> str:

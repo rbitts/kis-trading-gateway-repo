@@ -131,11 +131,33 @@ def get_order_status(order_id: str):
     job = order_queue.jobs.get(order_id)
     if not job:
         raise HTTPException(status_code=404, detail='order not found')
+
+    status = job['status']
+    if status == 'NEW':
+        status = 'QUEUED'
+
+    return {
+        'order_id': job['order_id'],
+        'status': status,
+        'error': job['error'],
+        'updated_at': job['updated_at'],
+    }
+
+
+@router.get('/orders/{order_id}/state')
+def get_order_state(order_id: str):
+    job = order_queue.jobs.get(order_id)
+    if not job:
+        raise HTTPException(status_code=404, detail='order not found')
+
     return {
         'order_id': job['order_id'],
         'status': job['status'],
         'error': job['error'],
         'updated_at': job['updated_at'],
+        'attempts': job.get('attempts', 0),
+        'max_attempts': job.get('max_attempts', 0),
+        'terminal': job.get('terminal', False),
     }
 
 
