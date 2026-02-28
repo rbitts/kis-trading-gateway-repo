@@ -26,6 +26,7 @@ export KIS_APP_KEY="..."
 export KIS_APP_SECRET="..."
 export KIS_ACCOUNT_NO="12345678-01"
 export KIS_ENV="mock"  # mock | live
+export KIS_WS_SYMBOLS="005930,000660"  # 런타임 WS subscribe 대상(콤마 구분)
 ```
 
 ### Startup/Lifecycle 점검
@@ -33,7 +34,7 @@ export KIS_ENV="mock"  # mock | live
 curl -s http://127.0.0.1:8890/v1/session/status | jq
 curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 ```
-- startup 시 WS client start, shutdown 시 stop 수행
+- startup(lifespan)에서 `KIS_WS_SYMBOLS` 기준 WS subscribe 시작, shutdown(lifespan)에서 stop 수행
 - `rest_fallbacks`, `ws_connected`, `last_ws_message_ts`를 운영 지표로 확인
 - `ws_heartbeat_fresh`, `ws_reconnect_count`, `ws_last_error`로 reconnect 상태를 함께 점검
 - REST 429 발생 시 `RestRateLimitCooldownError` → `REST_RATE_LIMIT_COOLDOWN`(HTTP 503) 응답 정책 확인
@@ -42,6 +43,7 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 - [ ] **Approval Key 발급 확인**: 기동 직후 로그에서 approval key 발급 성공 여부 확인(실패 시 APP_KEY/APP_SECRET/KIS_ENV 우선 점검)
 - [ ] **WebSocket 연결 + subscribe ACK 확인**: `ws_connected=true` 확인 후, subscribe 응답 ACK(성공 코드)와 초기 체결/호가 수신 로그 확인
 - [ ] **WS 지표 확인**: `/v1/metrics/quote`에서 `ws_messages` 증가, `last_ws_message_ts` 갱신, `ws_heartbeat_fresh=true`, `ws_last_error` 공백/안정 상태 확인
+- [ ] **런타임 활성화 확인**: `/v1/quotes/{symbol}` 응답에서 장중 기준 `source="kis-ws"` 확인(예: `005930`), 미활성 시 `KIS_WS_SYMBOLS`/lifespan 기동 로그 재확인
 
 ### 장중/장외 동작 기대치
 - 장중(09:00~15:30 KST): WS fresh면 `kis-ws`, stale/미수신이면 `kis-rest`
