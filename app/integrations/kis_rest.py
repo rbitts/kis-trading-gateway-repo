@@ -18,6 +18,8 @@ class KisRestClient:
         "mock": {"BUY": "VTTC0802U", "SELL": "VTTC0801U"},
         "live": {"BUY": "TTTC0802U", "SELL": "TTTC0801U"},
     }
+    _ORDER_MODIFY_TR_ID = {"mock": "VTTC0803U", "live": "TTTC0803U"}
+    _ORDER_CANCEL_TR_ID = {"mock": "VTTC0804U", "live": "TTTC0804U"}
 
     _KIS_SIDE = {"BUY": "02", "SELL": "01"}
     _KIS_ORDER_TYPE = {"LIMIT": "00", "MARKET": "01"}
@@ -225,3 +227,64 @@ class KisRestClient:
             "status": str(row.get("ord_stts") or "UNKNOWN"),
             "raw": payload,
         }
+
+
+    def cancel_order(self, account_id: str, broker_order_id: str) -> Dict[str, Any]:
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.post(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/order-rvsecncl",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": self._ORDER_CANCEL_TR_ID[self.env],
+                "custtype": "P",
+                "content-type": "application/json; charset=utf-8",
+            },
+            json={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "KRX_FWDG_ORD_ORGNO": "",
+                "ORGN_ODNO": broker_order_id,
+                "RVSE_CNCL_DVSN_CD": "02",
+                "ORD_QTY": "0",
+                "ORD_UNPR": "0",
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+        return {"status": "CANCEL_PENDING", "raw": payload}
+
+    def modify_order(self, account_id: str, broker_order_id: str, qty: int, price: float | None) -> Dict[str, Any]:
+        cano, acnt_prdt_cd = self._split_account(account_id)
+        token = self.get_access_token()
+
+        response = self.session.post(
+            f"{self.base_url}/uapi/domestic-stock/v1/trading/order-rvsecncl",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": self._ORDER_MODIFY_TR_ID[self.env],
+                "custtype": "P",
+                "content-type": "application/json; charset=utf-8",
+            },
+            json={
+                "CANO": cano,
+                "ACNT_PRDT_CD": acnt_prdt_cd,
+                "KRX_FWDG_ORD_ORGNO": "",
+                "ORGN_ODNO": broker_order_id,
+                "RVSE_CNCL_DVSN_CD": "01",
+                "ORD_QTY": str(qty),
+                "ORD_UNPR": "0" if price is None else str(int(price)),
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        self._raise_if_kis_error(payload)
+        return {"status": "MODIFY_PENDING", "raw": payload}
