@@ -260,17 +260,17 @@ def modify_order(order_id: str, req: OrderModifyRequest):
 @router.get('/balances', response_model=list[Balance])
 def get_balances(account_id: str, request: Request):
     rest_client = request.app.state.quote_gateway_service.rest_client
-    if hasattr(rest_client, 'get_balances'):
-        return rest_client.get_balances(account_id)
-    return []
+    if not hasattr(rest_client, 'get_balances'):
+        raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
+    return rest_client.get_balances(account_id)
 
 
 @router.get('/positions', response_model=list[Position])
 def get_positions(account_id: str, request: Request):
     rest_client = request.app.state.quote_gateway_service.rest_client
-    if hasattr(rest_client, 'get_positions'):
-        return rest_client.get_positions(account_id)
-    return []
+    if not hasattr(rest_client, 'get_positions'):
+        raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
+    return rest_client.get_positions(account_id)
 
 
 @router.get('/metrics/quote')
