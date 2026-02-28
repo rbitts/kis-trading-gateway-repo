@@ -1,5 +1,7 @@
 # Order API Contract (Task 1)
 
+> Consumer-friendly single guide: `docs/api/consumer-api-guide.md`
+
 ## Existing Endpoint
 - `POST /v1/orders` (`operationId: createOrder`)
 
