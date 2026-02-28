@@ -162,5 +162,39 @@ class TestKisRestClient(unittest.TestCase):
         self.assertEqual(session.post.call_count, 1)
 
 
+    def test_issue_approval_key_uses_kis_contract(self):
+        session = MagicMock()
+
+        approval_response = MagicMock()
+        approval_response.json.return_value = {
+            "approval_key": "approval-123",
+        }
+        approval_response.raise_for_status.return_value = None
+        session.post.return_value = approval_response
+
+        client = KisRestClient(
+            app_key="app-key",
+            app_secret="app-secret",
+            env="mock",
+            session=session,
+            base_url="https://example.test",
+        )
+
+        approval_key = client.issue_approval_key()
+
+        self.assertEqual(approval_key, "approval-123")
+        session.post.assert_called_once_with(
+            "https://example.test/oauth2/Approval",
+            headers={"content-type": "application/json; charset=utf-8"},
+            json={
+                "grant_type": "client_credentials",
+                "appkey": "app-key",
+                "secretkey": "app-secret",
+            },
+            timeout=5,
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
