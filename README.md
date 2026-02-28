@@ -100,10 +100,25 @@ curl -s -X POST http://127.0.0.1:8890/v1/orders \
   -H 'Idempotency-Key: sample-sell-k1' \
   -d '{"account_id":"A1","symbol":"005930","side":"SELL","qty":2,"price":70000,"order_type":"LIMIT"}' | jq
 
+# 주문 정정/취소
+curl -s -X POST http://127.0.0.1:8890/v1/orders/${BUY_ORDER_ID}/modify \
+  -H 'Content-Type: application/json' \
+  -d '{"qty":2,"price":70100}' | jq
+curl -s -X POST http://127.0.0.1:8890/v1/orders/${BUY_ORDER_ID}/cancel | jq
+
+# 잔고/포지션
+curl -s "http://127.0.0.1:8890/v1/balances?account_id=A1" | jq
+curl -s "http://127.0.0.1:8890/v1/positions?account_id=A1" | jq
+
 # metrics
 curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 curl -s http://127.0.0.1:8890/v1/metrics/order | jq
 ```
+
+## Reconciliation Worker
+- 앱 startup 시 reconciliation worker가 시작되고 shutdown 시 종료됩니다.
+- 현재는 in-memory 주문 상태와 브로커 상태를 비교/보정하는 기반을 제공하며,
+  브로커 상태 provider 연동 고도화는 후속 작업입니다.
 
 ## Test
 ```bash

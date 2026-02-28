@@ -44,10 +44,15 @@ def evaluate_trade_risk(
     if daily_order_count >= daily_order_limit:
         return {'ok': False, 'reason': 'DAILY_LIMIT_EXCEEDED'}
 
-    if req.qty > max_qty:
+    side_result = evaluate_side_policy(req, get_available_sell_qty=get_available_sell_qty)
+    if not side_result['ok']:
+        return side_result
+
+    # T2 정책: max_qty는 BUY 경로 우선 적용(SELL은 보유수량 정책 우선)
+    if req.side == 'BUY' and req.qty > max_qty:
         return {'ok': False, 'reason': 'MAX_QTY_EXCEEDED'}
 
-    return evaluate_side_policy(req, get_available_sell_qty=get_available_sell_qty)
+    return {'ok': True, 'reason': None}
 
 
 _ALLOWED_TRANSITIONS = {

@@ -114,7 +114,46 @@ curl -s "http://127.0.0.1:8890/v1/metrics/quote" | jq
 3. 발급 endpoint 접근성(방화벽/DNS/TLS) 점검
 4. 복구 전까지 WS 지표(`ws_connected`, `last_ws_message_ts`) 기반 상태 판단
 
-## 5) 회귀 검증
+## 5) 주문 확장 API 운영 체크 (정정/취소)
+
+기본 확인:
+
+```bash
+# 주문 생성 후
+curl -s -X POST http://127.0.0.1:8890/v1/orders/{order_id}/modify \
+  -H 'Content-Type: application/json' \
+  -d '{"qty":2,"price":70100}' | jq
+
+curl -s -X POST http://127.0.0.1:8890/v1/orders/{order_id}/cancel | jq
+```
+
+판단 포인트:
+- 상태전이 위반 시 400 (`INVALID_TRANSITION`)
+- terminal 주문 대상 정정/취소는 409
+- 리스크 가드(`LIVE_DISABLED`, `DAILY_LIMIT_EXCEEDED`, `MAX_QTY_EXCEEDED`) 동작 여부 확인
+
+## 6) 잔고/포지션 조회 체크
+
+```bash
+curl -s "http://127.0.0.1:8890/v1/balances?account_id=A1" | jq
+curl -s "http://127.0.0.1:8890/v1/positions?account_id=A1" | jq
+```
+
+판단 포인트:
+- 응답은 리스트 스키마 유지
+- KIS 연동 미구성 시 빈 리스트 반환 가능(환경 구성 확인 필요)
+
+## 7) Reconciliation 워커 체크
+
+- startup 시 reconciliation worker 시작
+- shutdown 시 stop 호출
+- 불일치 탐지 시 내부 상태 보정 이벤트 기록
+
+운영 리스크:
+- 이벤트 저장은 현재 in-memory(재기동 시 유실)
+- 실브로커 상태 provider 고도화 필요
+
+## 8) 회귀 검증
 
 문서/설정 변경 후 전체 테스트:
 
