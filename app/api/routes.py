@@ -17,6 +17,26 @@ _TRADING_START = time(9, 0)
 _TRADING_END = time(15, 30)
 
 
+_ALLOWED_SIDES = {"BUY", "SELL"}
+_ALLOWED_ORDER_TYPES = {"LIMIT", "MARKET"}
+
+
+def _validate_order_contract(req: OrderRequest) -> str | None:
+    if req.side not in _ALLOWED_SIDES:
+        return 'INVALID_SIDE'
+
+    if req.order_type not in _ALLOWED_ORDER_TYPES:
+        return 'INVALID_ORDER_TYPE'
+
+    if req.order_type == 'LIMIT' and req.price is None and 'order_type' in req.model_fields_set:
+        return 'PRICE_REQUIRED_FOR_LIMIT'
+
+    if req.order_type == 'MARKET' and req.price is not None:
+        return 'PRICE_NOT_ALLOWED_FOR_MARKET'
+
+    return None
+
+
 @router.get('/session/status')
 def get_session_status():
     return session_orchestrator.status().model_dump()
@@ -82,6 +102,10 @@ def check_risk(req: RiskCheckRequest):
 def create_order(req: OrderRequest, idempotency_key: str | None = Header(default=None, alias='Idempotency-Key')):
     if not idempotency_key:
         raise HTTPException(status_code=400, detail='Idempotency-Key header required')
+
+    contract_error = _validate_order_contract(req)
+    if contract_error:
+        raise HTTPException(status_code=400, detail=contract_error)
 
     risk_result = check_risk(
         RiskCheckRequest(

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class OrderRequest(BaseModel):
@@ -9,6 +9,16 @@ class OrderRequest(BaseModel):
     order_type: str = "LIMIT"
     price: float | None = None
     strategy_id: str | None = None
+
+    @field_validator("side")
+    @classmethod
+    def normalize_side(cls, value: str) -> str:
+        return value.upper()
+
+    @field_validator("order_type")
+    @classmethod
+    def normalize_order_type(cls, value: str) -> str:
+        return value.upper()
 
 
 class OrderAccepted(BaseModel):

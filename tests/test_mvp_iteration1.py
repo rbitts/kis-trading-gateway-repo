@@ -269,6 +269,36 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['status'], 'ACCEPTED')
 
+    def test_order_create_invalid_side_returns_error_code(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/orders', headers={'Idempotency-Key': 'bad-side'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'HOLD', 'qty': 1, 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json(), {'detail': 'INVALID_SIDE'})
+
+    def test_order_create_limit_order_requires_price(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/orders', headers={'Idempotency-Key': 'limit-no-price'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'BUY', 'qty': 1, 'order_type': 'LIMIT'
+            })
+
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json(), {'detail': 'PRICE_REQUIRED_FOR_LIMIT'})
+
+    def test_order_create_market_order_forbids_price(self):
+        with patch('app.api.routes.datetime') as mock_datetime:
+            mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+            r = self.client.post('/v1/orders', headers={'Idempotency-Key': 'market-with-price'}, json={
+                'account_id': 'A1', 'symbol': '005930', 'side': 'SELL', 'qty': 1, 'order_type': 'MARKET', 'price': 70000
+            })
+
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json(), {'detail': 'PRICE_NOT_ALLOWED_FOR_MARKET'})
+
 
 if __name__ == '__main__':
     unittest.main()
