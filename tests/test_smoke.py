@@ -5,10 +5,13 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import _DemoRestQuoteClient, app
 
 
 class SmokeTest(unittest.TestCase):
+    def setUp(self):
+        app.state.quote_gateway_service.rest_client = _DemoRestQuoteClient()
+
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
         readme = (repo_root / 'README.md').read_text(encoding='utf-8')
@@ -18,6 +21,18 @@ class SmokeTest(unittest.TestCase):
         self.assertTrue(checklist_path.exists())
         self.assertIn('kis-order-live-validation-checklist.md', readme)
         self.assertIn('kis-order-live-validation-checklist.md', runbook)
+
+    def test_live_readiness_endpoint_contract(self):
+        c = TestClient(app)
+        r = c.get('/v1/session/live-readiness')
+        self.assertEqual(r.status_code, 200)
+
+        body = r.json()
+        self.assertIn('required_env_missing', body)
+        self.assertIn('ws_connected', body)
+        self.assertIn('ws_last_error', body)
+        self.assertIn('can_trade', body)
+        self.assertIn('blocker_reasons', body)
 
     def test_quotes_order_modify_cancel_and_portfolio(self):
         c = TestClient(app)

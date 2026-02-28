@@ -1,4 +1,5 @@
 from datetime import datetime, time
+import os
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from app.errors import RestRateLimitCooldownError
 from app.schemas.order import OrderAccepted, OrderRequest
 from app.schemas.portfolio import Balance, Position
 from app.schemas.risk import RiskCheckRequest
+from app.schemas.session import LiveReadinessResponse
 from app.services.order_queue import order_queue
 from app.services.quote_cache import quote_ingest_worker
 from app.services.risk_policy import (
@@ -106,6 +108,32 @@ def reconnect_session(x_operator_token: str | None = Header(default=None, alias=
         'source': status.source,
     }
 
+
+
+@router.get('/session/live-readiness', response_model=LiveReadinessResponse)
+def get_live_readiness():
+    required_env_keys = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'KIS_ACCOUNT_NO']
+    required_env_missing = [key for key in required_env_keys if not os.getenv(key)]
+
+    ws_metrics = quote_ingest_worker.metrics()
+    ws_connected = bool(ws_metrics.get('ws_connected', False))
+    ws_last_error = ws_metrics.get('ws_last_error')
+
+    blocker_reasons: list[str] = []
+    if required_env_missing:
+        blocker_reasons.append('MISSING_REQUIRED_ENV')
+    if not ws_connected:
+        blocker_reasons.append('WS_DISCONNECTED')
+    if ws_last_error:
+        blocker_reasons.append('WS_ERROR_PRESENT')
+
+    return {
+        'required_env_missing': required_env_missing,
+        'ws_connected': ws_connected,
+        'ws_last_error': ws_last_error,
+        'can_trade': len(blocker_reasons) == 0,
+        'blocker_reasons': blocker_reasons,
+    }
 
 @router.get('/quotes/{symbol}')
 def get_quote(symbol: str, request: Request):

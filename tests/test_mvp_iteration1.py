@@ -82,6 +82,46 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual(body['source'], 'test-holder')
 
 
+    def test_live_readiness_reports_blockers_when_env_or_ws_not_ready(self):
+        quote_ingest_worker.ws_connected = False
+        quote_ingest_worker.ws_last_error = 'socket dropped'
+        app.state.ws_client.last_error = 'socket dropped'
+
+        with patch.dict('os.environ', {}, clear=True):
+            r = self.client.get('/v1/session/live-readiness')
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertFalse(body['can_trade'])
+        self.assertEqual(body['required_env_missing'], ['KIS_APP_KEY', 'KIS_APP_SECRET', 'KIS_ACCOUNT_NO'])
+        self.assertFalse(body['ws_connected'])
+        self.assertEqual(body['ws_last_error'], 'socket dropped')
+        self.assertEqual(body['blocker_reasons'], [
+            'MISSING_REQUIRED_ENV',
+            'WS_DISCONNECTED',
+            'WS_ERROR_PRESENT',
+        ])
+
+    def test_live_readiness_can_trade_true_when_env_and_ws_ready(self):
+        quote_ingest_worker.ws_connected = True
+        quote_ingest_worker.ws_last_error = None
+        app.state.ws_client.last_error = None
+
+        with patch.dict('os.environ', {
+            'KIS_APP_KEY': 'k',
+            'KIS_APP_SECRET': 's',
+            'KIS_ACCOUNT_NO': 'a',
+        }, clear=True):
+            r = self.client.get('/v1/session/live-readiness')
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['required_env_missing'], [])
+        self.assertTrue(body['ws_connected'])
+        self.assertIsNone(body['ws_last_error'])
+        self.assertTrue(body['can_trade'])
+        self.assertEqual(body['blocker_reasons'], [])
+
     def test_quote_endpoint_uses_quote_gateway_service(self):
         app.state.quote_gateway_service.market_open_checker = lambda: False
 
