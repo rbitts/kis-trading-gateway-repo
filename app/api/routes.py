@@ -2,6 +2,7 @@ from datetime import datetime, time
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from app.errors import RestRateLimitCooldownError
 from app.schemas.order import OrderAccepted, OrderRequest
 from app.schemas.risk import RiskCheckRequest
 from app.services.order_queue import order_queue
@@ -40,10 +41,8 @@ def get_quote(symbol: str, request: Request):
     service = request.app.state.quote_gateway_service
     try:
         row = service.get_quote(symbol)
-    except RuntimeError as exc:
-        if str(exc) == 'REST_RATE_LIMIT_COOLDOWN':
-            raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
-        raise
+    except RestRateLimitCooldownError as exc:
+        raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
     return row.model_dump()
 
 
@@ -55,10 +54,8 @@ def get_quotes(symbols: str, request: Request):
     for s in req:
         try:
             out.append(service.get_quote(s).model_dump())
-        except RuntimeError as exc:
-            if str(exc) == 'REST_RATE_LIMIT_COOLDOWN':
-                raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
-            raise
+        except RestRateLimitCooldownError as exc:
+            raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
     return out
 
 

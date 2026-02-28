@@ -3,6 +3,7 @@ import unittest
 
 from app.schemas.quote import QuoteSnapshot
 from app.services.quote_cache import QuoteCache
+from app.errors import RestRateLimitCooldownError
 from app.services.quote_gateway import QuoteGatewayService
 
 
@@ -160,10 +161,10 @@ class QuoteGatewayServiceTest(unittest.TestCase):
             stale_after_sec=5,
         )
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(RestRateLimitCooldownError):
             service.get_quote("000660")
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(RestRateLimitCooldownError):
             service.get_quote("000660")
 
         self.assertEqual(rest_client.calls, 1)
