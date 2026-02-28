@@ -16,11 +16,24 @@ class SmokeTest(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[1]
         readme = (repo_root / 'README.md').read_text(encoding='utf-8')
         runbook = (repo_root / 'docs/ops/kis-quote-runbook.md').read_text(encoding='utf-8')
+        checklist = (repo_root / 'docs/ops/kis-order-live-validation-checklist.md').read_text(encoding='utf-8')
         checklist_path = repo_root / 'docs/ops/kis-order-live-validation-checklist.md'
 
         self.assertTrue(checklist_path.exists())
         self.assertIn('kis-order-live-validation-checklist.md', readme)
         self.assertIn('kis-order-live-validation-checklist.md', runbook)
+        self.assertIn('/v1/session/live-readiness', readme)
+        self.assertIn('/v1/session/live-readiness', runbook)
+        self.assertIn('/v1/session/live-readiness', checklist)
+        self.assertIn('can_trade=true', readme)
+        self.assertIn('can_trade=true', runbook)
+        self.assertIn('can_trade=true', checklist)
+        self.assertIn('can_trade=false', readme)
+        self.assertIn('can_trade=false', runbook)
+        self.assertIn('can_trade=false', checklist)
+        self.assertIn('진입하지 않는다', readme)
+        self.assertIn('진입 금지', runbook)
+        self.assertIn('진입하지 않음', checklist)
 
     def test_live_readiness_endpoint_contract(self):
         c = TestClient(app)

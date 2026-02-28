@@ -64,6 +64,11 @@ curl -s http://127.0.0.1:8890/v1/metrics/quote | jq
 - REST rate limit(429): 조회 빈도 축소, 백오프/재시도, `REST_RATE_LIMIT_COOLDOWN` 처리 확인
 - 인증(token): 토큰 발급/갱신 실패 시 APP_KEY/APP_SECRET 및 환경(mock/live) 재확인
 
+### Live 주문 검증 진입 게이트(고정)
+1. `GET /v1/session/live-readiness`를 먼저 확인한다.
+2. `can_trade=true`일 때만 제한적 주문 검증 단계로 진입한다.
+3. `can_trade=false`이면 자격증명/WS blocker를 해소하기 전까지 **제한적 주문 검증 단계에 진입하지 않는다**.
+
 상세 운영 절차: `docs/ops/kis-quote-runbook.md`
 주문 실검증 체크리스트: `docs/ops/kis-order-live-validation-checklist.md`
 
