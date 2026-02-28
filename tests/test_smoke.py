@@ -1,3 +1,4 @@
+import subprocess
 import unittest
 from datetime import datetime as real_datetime
 from pathlib import Path
@@ -26,6 +27,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn('./api/openapi-next.yaml', index_html)
         self.assertIn('./api/openapi-live.json', redoc_live)
         self.assertIn('./api/openapi-next.yaml', redoc_next)
+
+    def test_api_docs_build_artifacts_generated(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        subprocess.run(['python3', 'scripts/build_api_docs_site.py'], cwd=repo_root, check=True)
+
+        live = repo_root / 'docs/site/api/openapi-live.json'
+        next_yaml = repo_root / 'docs/site/api/openapi-next.yaml'
+        self.assertTrue(live.exists())
+        self.assertTrue(next_yaml.exists())
 
     def test_docs_live_validation_checklist_links(self):
         repo_root = Path(__file__).resolve().parents[1]
