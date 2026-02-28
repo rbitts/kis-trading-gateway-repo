@@ -57,6 +57,26 @@ class KisRestClient:
         self._token_expires_at = issued_at + refresh_ttl
         return token
 
+
+    def issue_approval_key(self) -> str:
+        response = self.session.post(
+            f"{self.base_url}/oauth2/Approval",
+            headers={"content-type": "application/json; charset=utf-8"},
+            json={
+                "grant_type": "client_credentials",
+                "appkey": self.app_key,
+                "secretkey": self.app_secret,
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        approval_key = payload.get("approval_key")
+        if not approval_key:
+            raise ValueError("missing approval_key in response")
+        return str(approval_key)
+
     def get_access_token(self) -> str:
         if self._access_token and time.time() < self._token_expires_at:
             return self._access_token

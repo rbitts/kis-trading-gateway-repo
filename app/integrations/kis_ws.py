@@ -90,6 +90,7 @@ class KisWsClient:
         on_message: Optional[Callable[[Dict[str, Any]], None]] = None,
         *,
         approval_key: str = "",
+        approval_key_client: Optional[Any] = None,
         tr_id: str = "H0STCNT0",
         custtype: str = "P",
         tr_type: str = "1",
@@ -98,6 +99,7 @@ class KisWsClient:
         self._on_message = on_message
         self.running = False
         self.approval_key = approval_key
+        self._approval_key_client = approval_key_client
         self.tr_id = tr_id
         self.custtype = custtype
         self.tr_type = tr_type
@@ -113,6 +115,16 @@ class KisWsClient:
 
     def set_on_message(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         self._on_message = callback
+
+
+    def ensure_approval_key(self) -> str:
+        if self.approval_key:
+            return self.approval_key
+        if self._approval_key_client is None:
+            raise ValueError("approval key client is not configured")
+
+        self.approval_key = str(self._approval_key_client.issue_approval_key())
+        return self.approval_key
 
     def build_subscribe_message(self, symbol: str) -> Dict[str, Any]:
         return {
