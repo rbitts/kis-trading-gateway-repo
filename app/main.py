@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api.routes import router
 from app.config.settings import get_settings
+from app.integrations.kis_rest import KisRestClient
 from app.integrations.kis_ws import KisWsClient
 from app.services.quote_cache import quote_cache, quote_ingest_worker
 from app.services.quote_gateway import QuoteGatewayService
@@ -26,6 +27,19 @@ class _DemoRestQuoteClient:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        settings = app.state.get_settings()
+        app.state.ws_client.env = settings.KIS_ENV
+        if app.state.ws_client._approval_key_client is None:
+            app.state.ws_client._approval_key_client = KisRestClient(
+                app_key=settings.KIS_APP_KEY,
+                app_secret=settings.KIS_APP_SECRET,
+                env=settings.KIS_ENV,
+            )
+    except Exception:
+        # keep app import/lifecycle resilient in test env without KIS secrets
+        pass
+
     app.state.ws_client.start()
     try:
         yield
