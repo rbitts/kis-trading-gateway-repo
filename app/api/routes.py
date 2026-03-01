@@ -1,6 +1,7 @@
 from datetime import datetime, time
 import os
 
+import requests
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -319,6 +320,16 @@ def modify_order(order_id: str, req: OrderModifyRequest):
 
 
 
+def _map_portfolio_provider_call(callable_fn):
+    try:
+        return callable_fn()
+    except requests.exceptions.RequestException as exc:
+        raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_UNAVAILABLE') from exc
+    except RuntimeError as exc:
+        # normalize upstream provider runtime errors into recoverable availability error
+        raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_UNAVAILABLE') from exc
+
+
 @router.get('/balances', response_model=list[Balance])
 def get_balances(account_id: str, request: Request):
     if request is None:
@@ -326,7 +337,7 @@ def get_balances(account_id: str, request: Request):
     rest_client = request.app.state.quote_gateway_service.rest_client
     if not hasattr(rest_client, 'get_balances'):
         raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
-    return rest_client.get_balances(account_id)
+    return _map_portfolio_provider_call(lambda: rest_client.get_balances(account_id))
 
 
 @router.get('/positions', response_model=list[Position])
@@ -336,7 +347,7 @@ def get_positions(account_id: str, request: Request):
     rest_client = request.app.state.quote_gateway_service.rest_client
     if not hasattr(rest_client, 'get_positions'):
         raise HTTPException(status_code=503, detail='PORTFOLIO_PROVIDER_NOT_CONFIGURED')
-    return rest_client.get_positions(account_id)
+    return _map_portfolio_provider_call(lambda: rest_client.get_positions(account_id))
 
 
 @router.get('/metrics/quote')

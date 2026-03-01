@@ -28,17 +28,28 @@ class _DemoRestQuoteClient:
         }
 
 
+def _bind_runtime_clients(app: FastAPI, settings) -> None:
+    app.state.ws_client.env = settings.KIS_ENV
+    if app.state.ws_client._approval_key_client is None:
+        app.state.ws_client._approval_key_client = KisRestClient(
+            app_key=settings.KIS_APP_KEY,
+            app_secret=settings.KIS_APP_SECRET,
+            env=settings.KIS_ENV,
+        )
+
+    # When runtime KIS env is available, bind portfolio-capable REST client.
+    app.state.quote_gateway_service.rest_client = KisRestClient(
+        app_key=settings.KIS_APP_KEY,
+        app_secret=settings.KIS_APP_SECRET,
+        env=settings.KIS_ENV,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         settings = app.state.get_settings()
-        app.state.ws_client.env = settings.KIS_ENV
-        if app.state.ws_client._approval_key_client is None:
-            app.state.ws_client._approval_key_client = KisRestClient(
-                app_key=settings.KIS_APP_KEY,
-                app_secret=settings.KIS_APP_SECRET,
-                env=settings.KIS_ENV,
-            )
+        _bind_runtime_clients(app, settings)
     except Exception:
         # keep app import/lifecycle resilient in test env without KIS secrets
         pass
