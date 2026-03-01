@@ -1,5 +1,6 @@
 import unittest
 
+import requests
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -27,6 +28,14 @@ class _PortfolioStubClient:
 
 class _MissingPortfolioProvider:
     pass
+
+
+class _FailingPortfolioProvider:
+    def get_balances(self, account_id: str):
+        raise requests.exceptions.HTTPError("403 token failure")
+
+    def get_positions(self, account_id: str):
+        raise requests.exceptions.HTTPError("403 token failure")
 
 
 class TestBalancePositionEndpoints(unittest.TestCase):
@@ -71,6 +80,20 @@ class TestBalancePositionEndpoints(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 503)
         self.assertEqual(resp.json(), {"detail": "PORTFOLIO_PROVIDER_NOT_CONFIGURED"})
+
+    def test_get_balances_returns_503_when_provider_call_fails(self):
+        app.state.quote_gateway_service.rest_client = _FailingPortfolioProvider()
+        resp = self.client.get("/v1/balances", params={"account_id": "12345678-01"})
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json(), {"detail": "PORTFOLIO_PROVIDER_UNAVAILABLE"})
+
+    def test_get_positions_returns_503_when_provider_call_fails(self):
+        app.state.quote_gateway_service.rest_client = _FailingPortfolioProvider()
+        resp = self.client.get("/v1/positions", params={"account_id": "12345678-01"})
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json(), {"detail": "PORTFOLIO_PROVIDER_UNAVAILABLE"})
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn('Appendix C) Live Readiness 운영 체크', guide)
         self.assertIn('IDEMPOTENCY_KEY_BODY_MISMATCH', guide)
         self.assertIn('PORTFOLIO_PROVIDER_NOT_CONFIGURED', guide)
+        self.assertIn('PORTFOLIO_PROVIDER_UNAVAILABLE', guide)
         self.assertIn('POSITION_PROVIDER_UNAVAILABLE', guide)
 
     def test_docs_live_validation_checklist_links(self):
