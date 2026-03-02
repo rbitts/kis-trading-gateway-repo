@@ -152,13 +152,8 @@ def get_quote(symbol: str, request: Request):
 def get_quotes(symbols: str, request: Request):
     service = request.app.state.quote_gateway_service
     req = [s.strip() for s in symbols.split(',') if s.strip()]
-    out = []
-    for s in req:
-        try:
-            out.append(service.get_quote(s).model_dump())
-        except RestRateLimitCooldownError as exc:
-            raise HTTPException(status_code=503, detail='REST_RATE_LIMIT_COOLDOWN') from exc
-    return out
+    out = service.get_quotes(req)
+    return [row.model_dump() for row in out]
 
 
 @router.post('/risk/check')

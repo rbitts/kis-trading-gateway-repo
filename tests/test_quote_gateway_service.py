@@ -19,6 +19,21 @@ class StubRestClient:
         return data
 
 
+class TimeoutOnceRestClient:
+    def __init__(self, payload: dict, timeout_symbols: set[str]) -> None:
+        self.payload = payload
+        self.timeout_symbols = timeout_symbols
+        self.calls = 0
+
+    def get_quote(self, symbol: str) -> dict:
+        self.calls += 1
+        if symbol in self.timeout_symbols:
+            raise TimeoutError(f"timeout:{symbol}")
+        data = dict(self.payload)
+        data["symbol"] = symbol
+        return data
+
+
 class RateLimitRestClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -185,6 +200,85 @@ class QuoteGatewayServiceTest(unittest.TestCase):
 
         self.assertNotIn("005930", service._rest_symbol_cooldown_until)
         self.assertIn("000660", service._rest_symbol_cooldown_until)
+
+    def test_offhours_partial_ws_fills_to_target_with_rest(self):
+        cache = QuoteCache()
+        now = int(time.time())
+        cache.upsert(
+            QuoteSnapshot(
+                symbol="005930",
+                price=71000.0,
+                change_pct=0.1,
+                turnover=100.0,
+                source="kis-ws",
+                ts=now,
+                freshness_sec=0.0,
+                state="HEALTHY",
+            )
+        )
+        cache.upsert(
+            QuoteSnapshot(
+                symbol="000660",
+                price=120000.0,
+                change_pct=0.3,
+                turnover=200.0,
+                source="kis-ws",
+                ts=now,
+                freshness_sec=0.0,
+                state="HEALTHY",
+            )
+        )
+        rest_client = StubRestClient({"price": 70000.0, "source": "kis-rest", "ts": now})
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: False,
+            stale_after_sec=5,
+        )
+
+        symbols = ["005930", "000660", "035420", "051910", "068270", "105560"]
+        quotes = service.get_quotes(symbols)
+
+        self.assertEqual(len(quotes), 6)
+        self.assertEqual(service.metrics()["ws_count"], 2)
+        self.assertEqual(service.metrics()["rest_filled_count"], 4)
+        self.assertEqual(service.metrics()["batch_target_count"], 6)
+        self.assertEqual(service.metrics()["batch_final_count"], 6)
+        self.assertEqual(service.metrics()["fallback_triggered"], 1)
+
+    def test_offhours_rest_timeout_keeps_partial_but_no_crash(self):
+        cache = QuoteCache()
+        now = int(time.time())
+        cache.upsert(
+            QuoteSnapshot(
+                symbol="005930",
+                price=71000.0,
+                change_pct=0.1,
+                turnover=100.0,
+                source="kis-ws",
+                ts=now,
+                freshness_sec=0.0,
+                state="HEALTHY",
+            )
+        )
+        rest_client = TimeoutOnceRestClient(
+            payload={"price": 70000.0, "source": "kis-rest", "ts": now},
+            timeout_symbols={"051910"},
+        )
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: False,
+            stale_after_sec=5,
+        )
+
+        symbols = ["005930", "000660", "035420", "051910", "068270", "105560"]
+        quotes = service.get_quotes(symbols)
+
+        self.assertEqual(len(quotes), 5)
+        self.assertEqual(service.metrics()["batch_target_count"], 6)
+        self.assertEqual(service.metrics()["batch_final_count"], 5)
+        self.assertEqual(service.metrics()["rest_filled_count"], 4)
 
 
 if __name__ == "__main__":

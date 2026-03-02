@@ -29,6 +29,13 @@ class QuoteGatewayService:
         self.rest_fallbacks = 0
         self._rest_symbol_cooldown_until: dict[str, int] = {}
 
+        self.fallback_triggered = 0
+        self.rest_filled_count = 0
+        self.ws_count = 0
+        self.last_batch_target = 0
+        self.last_batch_final = 0
+        self.last_batch_market_open = True
+
     def _is_fresh(self, snapshot: QuoteSnapshot, now: int) -> bool:
         age = float(max(now - snapshot.ts, 0))
         snapshot.freshness_sec = age
@@ -79,6 +86,14 @@ class QuoteGatewayService:
             state="HEALTHY",
         )
 
+    def _get_cached_ws(self, symbol: str, now: int) -> QuoteSnapshot | None:
+        cached = self.quote_cache.get(symbol)
+        if cached is None:
+            return None
+        if self._is_fresh(cached, now):
+            return cached
+        return None
+
     def get_quote(self, symbol: str) -> QuoteSnapshot:
         now = int(time.time())
         self._prune_expired_cooldowns(now)
@@ -96,5 +111,82 @@ class QuoteGatewayService:
             return self._fetch_rest(symbol, now)
         return self._fetch_rest(symbol, now)
 
-    def metrics(self) -> dict[str, int]:
-        return {"rest_fallbacks": self.rest_fallbacks}
+    def get_quotes(self, symbols: list[str]) -> list[QuoteSnapshot]:
+        now = int(time.time())
+        self._prune_expired_cooldowns(now)
+
+        unique_symbols: list[str] = []
+        seen: set[str] = set()
+        for symbol in symbols:
+            value = str(symbol).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique_symbols.append(value)
+
+        market_open = self.market_open_checker()
+        ws_rows: dict[str, QuoteSnapshot] = {}
+        for symbol in unique_symbols:
+            cached = self._get_cached_ws(symbol, now)
+            if cached is not None:
+                ws_rows[symbol] = cached
+
+        target_count = len(unique_symbols)
+        ws_count = len(ws_rows)
+        rest_filled_count = 0
+        fallback_triggered = (not market_open) or (ws_count < target_count)
+
+        out: list[QuoteSnapshot] = []
+        for symbol in unique_symbols:
+            if symbol in ws_rows:
+                out.append(ws_rows[symbol])
+                continue
+
+            if self._is_symbol_cooldown(symbol, now):
+                cached = self.quote_cache.get(symbol)
+                if cached is not None:
+                    self._is_fresh(cached, now)
+                    out.append(cached)
+                continue
+
+            try:
+                quote = self._fetch_rest(symbol, now)
+                out.append(quote)
+                rest_filled_count += 1
+            except RestRateLimitCooldownError:
+                continue
+            except Exception as exc:
+                print(
+                    f"[QUOTE][rest_fallback_error] symbol={symbol} error={exc}",
+                    flush=True,
+                )
+                continue
+
+        self.ws_count = ws_count
+        self.rest_filled_count = rest_filled_count
+        self.last_batch_target = target_count
+        self.last_batch_final = len(out)
+        self.last_batch_market_open = market_open
+        if fallback_triggered:
+            self.fallback_triggered += 1
+
+        print(
+            "[QUOTE][batch_resolve] "
+            f"market_open={market_open} target_count={target_count} ws_count={ws_count} "
+            f"rest_filled_count={rest_filled_count} final_count={len(out)} "
+            f"fallback_triggered={int(fallback_triggered)}",
+            flush=True,
+        )
+
+        return out
+
+    def metrics(self) -> dict[str, int | bool]:
+        return {
+            "rest_fallbacks": self.rest_fallbacks,
+            "fallback_triggered": self.fallback_triggered,
+            "rest_filled_count": self.rest_filled_count,
+            "ws_count": self.ws_count,
+            "batch_target_count": self.last_batch_target,
+            "batch_final_count": self.last_batch_final,
+            "batch_market_open": self.last_batch_market_open,
+        }
