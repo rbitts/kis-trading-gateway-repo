@@ -142,6 +142,41 @@ class Iteration1Test(unittest.TestCase):
         self.assertEqual([row['symbol'] for row in body], ['005930', '000660'])
         self.assertTrue(all(row['source'] == 'kis-rest' for row in body))
 
+    def test_quotes_list_endpoint_returns_partial_meta_when_missing(self):
+        from app.services.quote_gateway import QuoteBatchMeta
+        from app.schemas.quote import QuoteSnapshot
+
+        now = int(time.time())
+        with patch.object(
+            app.state.quote_gateway_service,
+            'get_quotes',
+            return_value=(
+                [
+                    QuoteSnapshot(
+                        symbol='005930',
+                        price=71000.0,
+                        change_pct=0.1,
+                        turnover=100.0,
+                        source='kis-rest',
+                        ts=now,
+                        freshness_sec=0.0,
+                        state='HEALTHY',
+                    )
+                ],
+                QuoteBatchMeta(target_count=2, final_count=1, failed_symbols=['000660']),
+            ),
+        ):
+            r = self.client.get('/v1/quotes', params={'symbols': '005930,000660'})
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['partial'], True)
+        self.assertEqual(body['meta']['target_count'], 2)
+        self.assertEqual(body['meta']['final_count'], 1)
+        self.assertEqual(body['meta']['missing_count'], 1)
+        self.assertEqual(body['meta']['failed_symbols'], ['000660'])
+        self.assertEqual(len(body['quotes']), 1)
+
     def test_quote_ws_hook_and_freshness(self):
         quote_ingest_worker.on_ws_message({"symbol": "005930", "price": 71200, "ts": int(time.time()) - 10})
         quote_ingest_worker.refresh_freshness(now=int(time.time()))
