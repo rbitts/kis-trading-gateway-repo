@@ -53,6 +53,7 @@ class TestKisRestClient(unittest.TestCase):
                 "stck_prpr": "71200",
                 "prdy_ctrt": "1.35",
                 "acml_tr_pbmn": "123456789",
+                "hts_kor_isnm": "삼성전자",
             }
         }
         quote_response.raise_for_status.return_value = None
@@ -71,6 +72,7 @@ class TestKisRestClient(unittest.TestCase):
         quote = client.get_quote("005930")
 
         self.assertEqual(quote["symbol"], "005930")
+        self.assertEqual(quote["symbol_name"], "삼성전자")
         self.assertEqual(quote["price"], 71200.0)
         self.assertEqual(quote["change_pct"], 1.35)
         self.assertEqual(quote["turnover"], 123456789.0)
