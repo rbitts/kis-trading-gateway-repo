@@ -199,10 +199,8 @@ class QuoteGatewayService:
 
         out: list[QuoteSnapshot] = []
         failed_symbols: list[str] = []
-        for idx, symbol in enumerate(unique_symbols):
-            if idx > 0:
-                self._sleep_with_jitter()
-
+        rest_attempt_index = 0
+        for symbol in unique_symbols:
             if symbol in ws_rows:
                 out.append(ws_rows[symbol])
                 continue
@@ -216,6 +214,9 @@ class QuoteGatewayService:
                 continue
 
             try:
+                if rest_attempt_index > 0:
+                    self._sleep_with_jitter()
+                rest_attempt_index += 1
                 quote = self._fetch_rest(symbol, now)
                 out.append(quote)
                 rest_filled_count += 1
