@@ -308,6 +308,44 @@ class QuoteGatewayServiceTest(unittest.TestCase):
         self.assertEqual(service.metrics()["batch_final_count"], 5)
         self.assertEqual(service.metrics()["rest_filled_count"], 4)
 
+    def test_ws_only_batch_does_not_apply_jitter_sleep(self):
+        cache = QuoteCache()
+        now = int(time.time())
+        for symbol, price in [("005930", 71000.0), ("000660", 120000.0), ("035420", 80000.0)]:
+            cache.upsert(
+                QuoteSnapshot(
+                    symbol=symbol,
+                    price=price,
+                    change_pct=0.1,
+                    turnover=100.0,
+                    source="kis-ws",
+                    ts=now,
+                    freshness_sec=0.0,
+                    state="HEALTHY",
+                )
+            )
+        rest_client = StubRestClient({"price": 70000.0, "source": "kis-rest", "ts": now})
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: True,
+            stale_after_sec=5,
+        )
+
+        sleep_calls = {"count": 0}
+
+        def _sleep_stub():
+            sleep_calls["count"] += 1
+
+        service._sleep_with_jitter = _sleep_stub  # type: ignore[method-assign]
+
+        quotes, meta = service.get_quotes(["005930", "000660", "035420"])
+
+        self.assertEqual(len(quotes), 3)
+        self.assertEqual(meta.missing_count, 0)
+        self.assertEqual(rest_client.calls, 0)
+        self.assertEqual(sleep_calls["count"], 0)
+
     def test_batch_retry_then_success_fills_target_count(self):
         cache = QuoteCache()
         now = int(time.time())
