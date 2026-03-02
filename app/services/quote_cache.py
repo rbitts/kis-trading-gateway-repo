@@ -53,7 +53,6 @@ class QuoteIngestWorker:
         now = int(time.time())
         snapshot = QuoteSnapshot(
             symbol=payload["symbol"],
-            symbol_name=str(payload.get("symbol_name") or "").strip() or None,
             price=float(payload["price"]),
             change_pct=float(payload.get("change_pct", 0.0)),
             turnover=float(payload.get("turnover", 0.0)),
@@ -138,7 +137,6 @@ def seed_demo_quote(symbol: str) -> None:
     quote_cache.upsert(
         QuoteSnapshot(
             symbol=symbol,
-            symbol_name=None,
             price=70000.0,
             change_pct=0.0,
             turnover=0.0,

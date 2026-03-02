@@ -70,7 +70,6 @@ class QuoteGatewayService:
             raise
         return QuoteSnapshot(
             symbol=str(payload["symbol"]),
-            symbol_name=str(payload.get("symbol_name") or "").strip() or None,
             price=float(payload["price"]),
             change_pct=float(payload.get("change_pct", 0.0)),
             turnover=float(payload.get("turnover", 0.0)),
