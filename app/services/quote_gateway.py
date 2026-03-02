@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import random
 import time
+from dataclasses import dataclass
 from typing import Callable
 
 from app.errors import RestRateLimitCooldownError
 from app.schemas.quote import QuoteSnapshot
 from app.services.market_hours import is_market_open
 from app.services.quote_cache import QuoteCache
+
+
+@dataclass
+class QuoteBatchMeta:
+    target_count: int
+    final_count: int
+    failed_symbols: list[str]
+
+    @property
+    def missing_count(self) -> int:
+        return max(0, self.target_count - self.final_count)
 
 
 class QuoteGatewayService:
@@ -20,12 +33,21 @@ class QuoteGatewayService:
         market_open_checker: Callable | None = None,
         stale_after_sec: int = 5,
         rest_cooldown_sec: int = 3,
+        rest_retry_attempts: int = 3,
+        rest_backoff_base_sec: float = 0.25,
+        symbol_delay_min_sec: float = 0.3,
+        symbol_delay_max_sec: float = 0.8,
     ) -> None:
         self.quote_cache = quote_cache
         self.rest_client = rest_client
         self.market_open_checker = market_open_checker or is_market_open
         self.stale_after_sec = stale_after_sec
         self.rest_cooldown_sec = rest_cooldown_sec
+        self.rest_retry_attempts = max(1, int(rest_retry_attempts))
+        self.rest_backoff_base_sec = max(0.01, float(rest_backoff_base_sec))
+        self.symbol_delay_min_sec = max(0.0, float(symbol_delay_min_sec))
+        self.symbol_delay_max_sec = max(self.symbol_delay_min_sec, float(symbol_delay_max_sec))
+
         self.rest_fallbacks = 0
         self._rest_symbol_cooldown_until: dict[str, int] = {}
 
@@ -35,6 +57,8 @@ class QuoteGatewayService:
         self.last_batch_target = 0
         self.last_batch_final = 0
         self.last_batch_market_open = True
+        self.last_batch_failed_symbols: list[str] = []
+        self.last_batch_missing_count = 0
 
     def _is_fresh(self, snapshot: QuoteSnapshot, now: int) -> bool:
         age = float(max(now - snapshot.ts, 0))
@@ -62,19 +86,27 @@ class QuoteGatewayService:
             return code
         return None
 
-    def _fetch_rest(self, symbol: str, now: int) -> QuoteSnapshot:
-        self.rest_fallbacks += 1
-        try:
-            payload = self.rest_client.get_quote(symbol)
-        except Exception as exc:
-            if self._status_code_from_error(exc) == 429:
-                self._mark_symbol_cooldown(symbol, now)
-                cached = self.quote_cache.get(symbol)
-                if cached is not None:
-                    self._is_fresh(cached, now)
-                    return cached
-                raise RestRateLimitCooldownError("REST_RATE_LIMIT_COOLDOWN") from exc
-            raise
+    def _last_good_quote(self, symbol: str, now: int) -> QuoteSnapshot | None:
+        cached = self.quote_cache.get(symbol)
+        if cached is None:
+            return None
+        self._is_fresh(cached, now)
+        return cached
+
+    def _sleep_with_jitter(self) -> None:
+        if self.symbol_delay_max_sec <= 0:
+            return
+        delay = random.uniform(self.symbol_delay_min_sec, self.symbol_delay_max_sec)
+        if delay > 0:
+            time.sleep(delay)
+
+    def _sleep_backoff(self, attempt_index: int) -> None:
+        # attempt_index starts at 0
+        delay = self.rest_backoff_base_sec * (2 ** attempt_index)
+        if delay > 0:
+            time.sleep(delay)
+
+    def _build_snapshot(self, payload: dict, now: int) -> QuoteSnapshot:
         return QuoteSnapshot(
             symbol=str(payload["symbol"]),
             price=float(payload["price"]),
@@ -85,6 +117,36 @@ class QuoteGatewayService:
             freshness_sec=0.0,
             state="HEALTHY",
         )
+
+    def _fetch_rest(self, symbol: str, now: int) -> QuoteSnapshot:
+        self.rest_fallbacks += 1
+        last_exc: Exception | None = None
+
+        for attempt in range(self.rest_retry_attempts):
+            try:
+                payload = self.rest_client.get_quote(symbol)
+                return self._build_snapshot(payload, now)
+            except Exception as exc:
+                last_exc = exc
+                status_code = self._status_code_from_error(exc)
+                if status_code == 429:
+                    self._mark_symbol_cooldown(symbol, now)
+                    cached = self._last_good_quote(symbol, now)
+                    if cached is not None:
+                        return cached
+                    raise RestRateLimitCooldownError("REST_RATE_LIMIT_COOLDOWN") from exc
+                if attempt < self.rest_retry_attempts - 1:
+                    self._sleep_backoff(attempt)
+                    continue
+                self._mark_symbol_cooldown(symbol, now)
+                cached = self._last_good_quote(symbol, now)
+                if cached is not None:
+                    return cached
+                raise
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("REST_FETCH_FAILED")
 
     def _get_cached_ws(self, symbol: str, now: int) -> QuoteSnapshot | None:
         cached = self.quote_cache.get(symbol)
@@ -98,9 +160,8 @@ class QuoteGatewayService:
         now = int(time.time())
         self._prune_expired_cooldowns(now)
         if self._is_symbol_cooldown(symbol, now):
-            cached = self.quote_cache.get(symbol)
+            cached = self._last_good_quote(symbol, now)
             if cached is not None:
-                self._is_fresh(cached, now)
                 return cached
             raise RestRateLimitCooldownError("REST_RATE_LIMIT_COOLDOWN")
 
@@ -111,7 +172,7 @@ class QuoteGatewayService:
             return self._fetch_rest(symbol, now)
         return self._fetch_rest(symbol, now)
 
-    def get_quotes(self, symbols: list[str]) -> list[QuoteSnapshot]:
+    def get_quotes(self, symbols: list[str]) -> tuple[list[QuoteSnapshot], QuoteBatchMeta]:
         now = int(time.time())
         self._prune_expired_cooldowns(now)
 
@@ -137,16 +198,21 @@ class QuoteGatewayService:
         fallback_triggered = (not market_open) or (ws_count < target_count)
 
         out: list[QuoteSnapshot] = []
-        for symbol in unique_symbols:
+        failed_symbols: list[str] = []
+        for idx, symbol in enumerate(unique_symbols):
+            if idx > 0:
+                self._sleep_with_jitter()
+
             if symbol in ws_rows:
                 out.append(ws_rows[symbol])
                 continue
 
             if self._is_symbol_cooldown(symbol, now):
-                cached = self.quote_cache.get(symbol)
+                cached = self._last_good_quote(symbol, now)
                 if cached is not None:
-                    self._is_fresh(cached, now)
                     out.append(cached)
+                else:
+                    failed_symbols.append(symbol)
                 continue
 
             try:
@@ -154,12 +220,14 @@ class QuoteGatewayService:
                 out.append(quote)
                 rest_filled_count += 1
             except RestRateLimitCooldownError:
+                failed_symbols.append(symbol)
                 continue
             except Exception as exc:
                 print(
                     f"[QUOTE][rest_fallback_error] symbol={symbol} error={exc}",
                     flush=True,
                 )
+                failed_symbols.append(symbol)
                 continue
 
         self.ws_count = ws_count
@@ -167,6 +235,8 @@ class QuoteGatewayService:
         self.last_batch_target = target_count
         self.last_batch_final = len(out)
         self.last_batch_market_open = market_open
+        self.last_batch_failed_symbols = list(failed_symbols)
+        self.last_batch_missing_count = max(0, target_count - len(out))
         if fallback_triggered:
             self.fallback_triggered += 1
 
@@ -174,13 +244,18 @@ class QuoteGatewayService:
             "[QUOTE][batch_resolve] "
             f"market_open={market_open} target_count={target_count} ws_count={ws_count} "
             f"rest_filled_count={rest_filled_count} final_count={len(out)} "
+            f"failed_symbols={failed_symbols} missing_count={self.last_batch_missing_count} "
             f"fallback_triggered={int(fallback_triggered)}",
             flush=True,
         )
 
-        return out
+        return out, QuoteBatchMeta(
+            target_count=target_count,
+            final_count=len(out),
+            failed_symbols=failed_symbols,
+        )
 
-    def metrics(self) -> dict[str, int | bool]:
+    def metrics(self) -> dict[str, int | bool | list[str]]:
         return {
             "rest_fallbacks": self.rest_fallbacks,
             "fallback_triggered": self.fallback_triggered,
@@ -189,4 +264,6 @@ class QuoteGatewayService:
             "batch_target_count": self.last_batch_target,
             "batch_final_count": self.last_batch_final,
             "batch_market_open": self.last_batch_market_open,
+            "batch_failed_symbols": list(self.last_batch_failed_symbols),
+            "batch_missing_count": self.last_batch_missing_count,
         }

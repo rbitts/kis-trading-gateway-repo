@@ -51,6 +51,30 @@ class RateLimitRestClient:
         raise RateLimitError()
 
 
+class RetryThenSuccessRestClient:
+    def __init__(self, payload: dict, fail_once_symbols: set[str]) -> None:
+        self.payload = payload
+        self.fail_once_symbols = set(fail_once_symbols)
+        self.calls_by_symbol: dict[str, int] = {}
+
+    def get_quote(self, symbol: str) -> dict:
+        self.calls_by_symbol[symbol] = self.calls_by_symbol.get(symbol, 0) + 1
+        if symbol in self.fail_once_symbols and self.calls_by_symbol[symbol] == 1:
+            raise TimeoutError(f"timeout:{symbol}")
+        data = dict(self.payload)
+        data["symbol"] = symbol
+        return data
+
+
+class AlwaysFailRestClient:
+    def __init__(self) -> None:
+        self.calls_by_symbol: dict[str, int] = {}
+
+    def get_quote(self, symbol: str) -> dict:
+        self.calls_by_symbol[symbol] = self.calls_by_symbol.get(symbol, 0) + 1
+        raise TimeoutError(f"timeout:{symbol}")
+
+
 class QuoteGatewayServiceTest(unittest.TestCase):
     def test_market_open_with_fresh_ws_cache_uses_ws(self):
         cache = QuoteCache()
@@ -237,9 +261,11 @@ class QuoteGatewayServiceTest(unittest.TestCase):
         )
 
         symbols = ["005930", "000660", "035420", "051910", "068270", "105560"]
-        quotes = service.get_quotes(symbols)
+        quotes, meta = service.get_quotes(symbols)
 
         self.assertEqual(len(quotes), 6)
+        self.assertEqual(meta.missing_count, 0)
+        self.assertEqual(meta.failed_symbols, [])
         self.assertEqual(service.metrics()["ws_count"], 2)
         self.assertEqual(service.metrics()["rest_filled_count"], 4)
         self.assertEqual(service.metrics()["batch_target_count"], 6)
@@ -273,12 +299,80 @@ class QuoteGatewayServiceTest(unittest.TestCase):
         )
 
         symbols = ["005930", "000660", "035420", "051910", "068270", "105560"]
-        quotes = service.get_quotes(symbols)
+        quotes, meta = service.get_quotes(symbols)
 
         self.assertEqual(len(quotes), 5)
+        self.assertEqual(meta.missing_count, 1)
+        self.assertEqual(meta.failed_symbols, ["051910"])
         self.assertEqual(service.metrics()["batch_target_count"], 6)
         self.assertEqual(service.metrics()["batch_final_count"], 5)
         self.assertEqual(service.metrics()["rest_filled_count"], 4)
+
+    def test_batch_retry_then_success_fills_target_count(self):
+        cache = QuoteCache()
+        now = int(time.time())
+        rest_client = RetryThenSuccessRestClient(
+            payload={"price": 70000.0, "source": "kis-rest", "ts": now},
+            fail_once_symbols={"000660", "051910"},
+        )
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: False,
+            stale_after_sec=5,
+            rest_retry_attempts=3,
+            rest_backoff_base_sec=0.01,
+            symbol_delay_min_sec=0.0,
+            symbol_delay_max_sec=0.0,
+        )
+
+        symbols = ["005930", "000660", "035420", "051910", "068270", "105560"]
+        quotes, meta = service.get_quotes(symbols)
+
+        self.assertEqual(len(quotes), 6)
+        self.assertEqual(meta.failed_symbols, [])
+        self.assertEqual(meta.missing_count, 0)
+        self.assertEqual(rest_client.calls_by_symbol["000660"], 2)
+        self.assertEqual(rest_client.calls_by_symbol["051910"], 2)
+
+    def test_batch_cooldown_reuses_last_good_quote_after_retries_exhausted(self):
+        cache = QuoteCache()
+        now = int(time.time())
+        cache.upsert(
+            QuoteSnapshot(
+                symbol="051910",
+                price=401000.0,
+                change_pct=0.2,
+                turnover=50.0,
+                source="kis-ws",
+                ts=now - 20,
+                freshness_sec=0.0,
+                state="STALE",
+            )
+        )
+        rest_client = AlwaysFailRestClient()
+        service = QuoteGatewayService(
+            quote_cache=cache,
+            rest_client=rest_client,
+            market_open_checker=lambda: False,
+            stale_after_sec=5,
+            rest_cooldown_sec=60,
+            rest_retry_attempts=2,
+            rest_backoff_base_sec=0.01,
+            symbol_delay_min_sec=0.0,
+            symbol_delay_max_sec=0.0,
+        )
+
+        quotes1, meta1 = service.get_quotes(["051910"])
+        quotes2, meta2 = service.get_quotes(["051910"])
+
+        self.assertEqual(len(quotes1), 1)
+        self.assertEqual(len(quotes2), 1)
+        self.assertEqual(quotes1[0].source, "kis-ws")
+        self.assertEqual(quotes2[0].source, "kis-ws")
+        self.assertEqual(meta1.missing_count, 0)
+        self.assertEqual(meta2.missing_count, 0)
+        self.assertEqual(rest_client.calls_by_symbol["051910"], 2)
 
 
 if __name__ == "__main__":

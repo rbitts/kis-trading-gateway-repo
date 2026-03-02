@@ -152,8 +152,20 @@ def get_quote(symbol: str, request: Request):
 def get_quotes(symbols: str, request: Request):
     service = request.app.state.quote_gateway_service
     req = [s.strip() for s in symbols.split(',') if s.strip()]
-    out = service.get_quotes(req)
-    return [row.model_dump() for row in out]
+    out, meta = service.get_quotes(req)
+    rows = [row.model_dump() for row in out]
+    if meta.missing_count > 0:
+        return {
+            'quotes': rows,
+            'partial': True,
+            'meta': {
+                'target_count': meta.target_count,
+                'final_count': meta.final_count,
+                'missing_count': meta.missing_count,
+                'failed_symbols': meta.failed_symbols,
+            },
+        }
+    return rows
 
 
 @router.post('/risk/check')
