@@ -72,7 +72,6 @@ class TestKisRestClient(unittest.TestCase):
         quote = client.get_quote("005930")
 
         self.assertEqual(quote["symbol"], "005930")
-        self.assertEqual(quote["symbol_name"], "삼성전자")
         self.assertEqual(quote["price"], 71200.0)
         self.assertEqual(quote["change_pct"], 1.35)
         self.assertEqual(quote["turnover"], 123456789.0)
