@@ -140,8 +140,16 @@ class KisRestClient:
         payload = response.json()
         output = payload.get("output", {})
 
+        symbol_name = str(
+            output.get("hts_kor_isnm")
+            or output.get("prdt_name")
+            or output.get("bstp_kor_isnm")
+            or ""
+        ).strip() or None
+
         return {
             "symbol": symbol,
+            "symbol_name": symbol_name,
             "price": self._to_float(output.get("stck_prpr")),
             "change_pct": self._to_float(output.get("prdy_ctrt")),
             "turnover": self._to_float(output.get("acml_tr_pbmn")),
