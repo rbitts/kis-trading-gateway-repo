@@ -119,6 +119,7 @@ class KisWsClient:
         self._websocket_app_factory = websocket_app_factory or self._default_websocket_app_factory
         self._on_state_change = on_state_change
         self._first_message_logged = False
+        self._active_ws_app: Any | None = None
 
     def _emit_state(self, *, connected: bool, heartbeat_ts: int | None = None) -> None:
         if self._on_state_change is None:
@@ -148,6 +149,13 @@ class KisWsClient:
     def stop(self) -> None:
         self.running = False
         self._first_message_logged = False
+        ws_app = self._active_ws_app
+        self._active_ws_app = None
+        if ws_app is not None:
+            try:
+                ws_app.close()
+            except Exception:
+                pass
         self._emit_state(connected=False)
 
     def set_on_message(self, callback: Callable[[Dict[str, Any]], None]) -> None:
@@ -224,41 +232,51 @@ class KisWsClient:
             on_error=_on_error,
             on_close=_on_close,
         )
+        self._active_ws_app = ws_app
 
-        if run_forever:
-            ws_app.run_forever()
-            if not state["opened"]:
-                raise RuntimeError("ws_open_not_confirmed")
-
-        return ws_app
+        try:
+            if run_forever:
+                ws_app.run_forever()
+                if self.running and not state["opened"]:
+                    raise RuntimeError("ws_open_not_confirmed")
+            return ws_app
+        finally:
+            if self._active_ws_app is ws_app:
+                self._active_ws_app = None
+            try:
+                ws_app.close()
+            except Exception:
+                pass
 
     def run_with_reconnect(
         self,
         *,
         connect_once: Callable[[], None],
         sleep_fn: Callable[[float], None] = time.sleep,
-        max_retries: int = 5,
+        max_retries: int = 0,
         backoff_base_sec: float = 1.0,
         backoff_cap_sec: float = 30.0,
     ) -> bool:
-        """Run connect loop with exponential backoff. Returns True on success."""
-        if max_retries < 1:
-            return False
+        """Run connect loop with exponential backoff. Returns True on first successful open.
 
+        max_retries<=0 means unlimited retries until stop() is called.
+        """
         self.running = True
         self.last_error = None
         self.reconnect_count = 0
         self._emit_state(connected=False)
 
-        for attempt in range(max_retries):
-            if not self.running:
-                return False
-
+        attempt = 0
+        while self.running:
             try:
                 connect_once()
                 self.last_error = None
+                self.reconnect_count = 0
                 self._emit_state(connected=True, heartbeat_ts=int(time.time()))
-                return True
+                if not self.running:
+                    return False
+                # run_forever returned (socket closed) -> reconnect loop
+                continue
             except Exception as exc:
                 self.last_error = str(exc)
                 self.reconnect_count += 1
@@ -267,10 +285,11 @@ class KisWsClient:
                 if not self.running:
                     return False
 
-                if attempt == max_retries - 1:
+                attempt += 1
+                if max_retries > 0 and attempt >= max_retries:
                     break
 
-                backoff = min(backoff_base_sec * (2**attempt), backoff_cap_sec)
+                backoff = min(backoff_base_sec * (2 ** max(0, attempt - 1)), backoff_cap_sec)
                 sleep_fn(backoff)
 
         return False
