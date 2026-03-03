@@ -75,14 +75,51 @@ class TestKisWsParser(unittest.TestCase):
         self.assertEqual(message["body"]["input"]["tr_id"], "H0STCNT0")
         self.assertEqual(message["body"]["input"]["tr_key"], "005930")
 
-    def test_parse_message_supports_pipe_realtime_frame(self):
-        payload = "0|H0STCNT0|001|005930^71300^1.49^2233445566"
+    def _build_h0stcnt0_record(
+        self,
+        *,
+        symbol: str,
+        trade_time: str = "093001",
+        price: str = "71300",
+        change_pct: str = "1.49",
+        turnover: str = "2233445566",
+    ) -> list[str]:
+        fields = ["" for _ in range(46)]
+        fields[0] = symbol
+        fields[1] = trade_time
+        fields[2] = price
+        fields[5] = change_pct
+        fields[14] = turnover
+        return fields
+
+    def test_parse_message_pipe_realtime_uses_fixed_price_index_even_with_trade_time(self):
+        record = self._build_h0stcnt0_record(symbol="005930", trade_time="093001", price="71300")
+        payload = "0|H0STCNT0|001|" + "^".join(record)
 
         parsed = parse_message(payload)
 
         self.assertEqual(parsed["symbol"], "005930")
         self.assertEqual(parsed["price"], 71300.0)
+        self.assertEqual(parsed["change_pct"], 1.49)
+        self.assertEqual(parsed["turnover"], 2233445566.0)
         self.assertEqual(parsed["source"], "kis-ws")
+
+    def test_parse_message_pipe_realtime_supports_multi_record_frame(self):
+        rec1 = self._build_h0stcnt0_record(symbol="005930", price="71300")
+        rec2 = self._build_h0stcnt0_record(symbol="000660", price="198500", change_pct="-0.52", turnover="987654321")
+        payload = "0|H0STCNT0|002|" + "^".join(rec1 + rec2)
+
+        parsed = parse_message(payload)
+
+        self.assertEqual(parsed["symbol"], "005930")
+        self.assertEqual(parsed["price"], 71300.0)
+
+    def test_parse_message_pipe_realtime_rejects_malformed_field_count(self):
+        malformed = self._build_h0stcnt0_record(symbol="005930")[:-1]
+        payload = "0|H0STCNT0|001|" + "^".join(malformed)
+
+        with self.assertRaises(ValueError):
+            parse_message(payload)
 
     def test_parse_message_raises_for_invalid_payload(self):
         with self.assertRaises(ValueError):

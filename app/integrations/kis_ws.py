@@ -39,47 +39,65 @@ def _payload_hint(payload: Any) -> str:
 def _decode_pipe_realtime_payload(payload: str) -> Dict[str, Any] | None:
     # KIS realtime frames may arrive as delimited text:
     #   0|H0STCNT0|001|<field0^field1^...>
-    # We only extract the minimal fields needed for quote cache.
+    # H0STCNT0 has fixed-width records (46 fields each).
     if "|" not in payload or "^" not in payload:
         return None
     parts = payload.split("|", 3)
     if len(parts) < 4:
         return None
+
     tr_id = parts[1].strip()
     if tr_id != "H0STCNT0":
         return None
+
+    try:
+        data_cnt = int(parts[2].strip())
+    except (TypeError, ValueError):
+        return None
+    if data_cnt <= 0:
+        return None
+
     body = parts[3]
     fields = [f.strip() for f in body.split("^")]
-    if not fields:
+    chunk_size = 46
+    expected_count = data_cnt * chunk_size
+    if len(fields) != expected_count:
         return None
 
-    symbol = next((f for f in fields if re.fullmatch(r"\d{6}", f)), None)
-    if not symbol:
-        return None
+    for idx in range(data_cnt):
+        chunk = fields[idx * chunk_size : (idx + 1) * chunk_size]
+        if len(chunk) != chunk_size:
+            return None
 
-    # pick the first plausible price after symbol
-    try:
-        start_idx = fields.index(symbol) + 1
-    except ValueError:
-        start_idx = 0
-    price = None
-    for f in fields[start_idx:]:
-        if re.fullmatch(r"-?\d+(?:\.\d+)?", f):
-            try:
-                val = float(f)
-            except ValueError:
-                continue
-            if val > 0:
-                price = val
-                break
-    if price is None:
-        return None
+        symbol = chunk[0]
+        price_raw = chunk[2]
+        if not re.fullmatch(r"\d{6}", symbol):
+            continue
+        try:
+            price = float(price_raw)
+        except (TypeError, ValueError):
+            continue
+        if price <= 0:
+            continue
 
-    return {
-        "symbol": symbol,
-        "price": price,
-        "source": "kis-ws",
-    }
+        quote: Dict[str, Any] = {
+            "symbol": symbol,
+            "price": price,
+            "source": "kis-ws",
+        }
+
+        trade_time = chunk[1]
+        if trade_time:
+            quote["trade_time"] = trade_time
+
+        change_pct = _to_float_default(chunk[5], default=0.0)
+        turnover = _to_float_default(chunk[14], default=0.0)
+        quote["change_pct"] = change_pct
+        quote["turnover"] = turnover
+
+        return quote
+
+    return None
 
 
 def _decode_payload_to_dict(payload: Any) -> Dict[str, Any]:
