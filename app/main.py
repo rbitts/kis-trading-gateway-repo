@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -45,6 +46,25 @@ def _bind_runtime_clients(app: FastAPI, settings) -> None:
     )
 
 
+def _should_enable_order_worker() -> bool:
+    # Keep deterministic tests: pytest sets PYTEST_CURRENT_TEST.
+    if os.getenv('PYTEST_CURRENT_TEST'):
+        return False
+    raw = str(os.getenv('ORDER_WORKER_ENABLED', 'true')).strip().lower()
+    return raw in {'1', 'true', 'yes', 'on'}
+
+
+def _order_worker_loop(app: FastAPI, stop_event: threading.Event, interval_sec: float) -> None:
+    while not stop_event.wait(interval_sec):
+        try:
+            adapter = getattr(app.state.quote_gateway_service, 'rest_client', None)
+            if adapter is None or not hasattr(adapter, 'place_order'):
+                continue
+            app.state.order_queue.process_next(adapter=adapter)
+        except Exception:
+            continue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -55,6 +75,22 @@ async def lifespan(app: FastAPI):
         pass
 
     app.state.reconciliation_worker.start()
+
+    order_worker_thread = None
+    order_worker_stop_event = None
+    if _should_enable_order_worker():
+        order_worker_stop_event = threading.Event()
+        app.state.order_worker_stop_event = order_worker_stop_event
+        interval_sec = float(os.getenv('ORDER_WORKER_INTERVAL_SEC', '0.5'))
+        order_worker_thread = threading.Thread(
+            target=_order_worker_loop,
+            args=(app, order_worker_stop_event, interval_sec),
+            daemon=True,
+            name='order-worker',
+        )
+        app.state.order_worker_thread = order_worker_thread
+        print("[ORDER][worker_start] thread=order-worker", flush=True)
+        order_worker_thread.start()
 
     ws_worker = threading.Thread(
         target=lambda: app.state.ws_client.run_with_reconnect(
@@ -73,6 +109,11 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         app.state.reconciliation_worker.stop()
+        if order_worker_stop_event is not None:
+            order_worker_stop_event.set()
+        if order_worker_thread is not None and order_worker_thread.is_alive():
+            order_worker_thread.join(timeout=1.0)
+            print("[ORDER][worker_stop] thread=order-worker", flush=True)
         app.state.ws_client.stop()
         ws_worker.join(timeout=1.0)
         print("[WS][ws_worker_stop] thread=kis-ws-worker", flush=True)
@@ -91,4 +132,5 @@ app.state.quote_gateway_service = QuoteGatewayService(
     quote_cache=quote_cache,
     rest_client=_DemoRestQuoteClient(),
 )
+app.state.order_queue = order_queue
 app.state.reconciliation_worker = ReconciliationService(order_queue=order_queue)
