@@ -65,8 +65,11 @@ def _make_sell_qty_provider(request: Request | None):
     if not hasattr(rest_client, 'get_positions'):
         return None
 
-    def _provider(account_id: str, symbol: str) -> int:
-        positions = rest_client.get_positions(account_id)
+    def _provider(account_id: str, symbol: str) -> int | None:
+        try:
+            positions = rest_client.get_positions(account_id)
+        except Exception:
+            return None
         for row in positions:
             if str(row.get('symbol', '')).strip() == symbol:
                 try:

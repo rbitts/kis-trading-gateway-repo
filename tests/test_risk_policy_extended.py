@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime as real_datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -73,6 +74,35 @@ class RiskPolicyExtendedTest(unittest.TestCase):
             })
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json(), {'ok': True, 'reason': None})
+
+    def test_create_order_sell_does_not_500_when_positions_provider_raises(self):
+        client = TestClient(app)
+        original_service = app.state.quote_gateway_service
+
+        class _BrokenRestClient:
+            def get_positions(self, _account_id: str):
+                raise RuntimeError('INVALID_ORDER')
+
+        try:
+            app.state.quote_gateway_service = SimpleNamespace(rest_client=_BrokenRestClient())
+            with patch('app.api.routes.datetime') as mock_datetime:
+                mock_datetime.now.return_value = real_datetime(2026, 1, 2, 10, 0, 0)
+                res = client.post(
+                    '/v1/orders',
+                    headers={'Idempotency-Key': 'risk-provider-error-sell-1'},
+                    json={
+                        'account_id': 'A1',
+                        'symbol': '005930',
+                        'side': 'SELL',
+                        'qty': 1,
+                        'price': 70000,
+                        'order_type': 'LIMIT',
+                    },
+                )
+            self.assertEqual(res.status_code, 400)
+            self.assertIn(res.json().get('detail'), {'INSUFFICIENT_POSITION_QTY', 'POSITION_PROVIDER_UNAVAILABLE'})
+        finally:
+            app.state.quote_gateway_service = original_service
 
 
 if __name__ == '__main__':
