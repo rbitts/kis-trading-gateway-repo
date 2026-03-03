@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -35,6 +36,52 @@ def _payload_hint(payload: Any) -> str:
     return f"type={type(payload).__name__}"
 
 
+def _decode_pipe_realtime_payload(payload: str) -> Dict[str, Any] | None:
+    # KIS realtime frames may arrive as delimited text:
+    #   0|H0STCNT0|001|<field0^field1^...>
+    # We only extract the minimal fields needed for quote cache.
+    if "|" not in payload or "^" not in payload:
+        return None
+    parts = payload.split("|", 3)
+    if len(parts) < 4:
+        return None
+    tr_id = parts[1].strip()
+    if tr_id != "H0STCNT0":
+        return None
+    body = parts[3]
+    fields = [f.strip() for f in body.split("^")]
+    if not fields:
+        return None
+
+    symbol = next((f for f in fields if re.fullmatch(r"\d{6}", f)), None)
+    if not symbol:
+        return None
+
+    # pick the first plausible price after symbol
+    try:
+        start_idx = fields.index(symbol) + 1
+    except ValueError:
+        start_idx = 0
+    price = None
+    for f in fields[start_idx:]:
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", f):
+            try:
+                val = float(f)
+            except ValueError:
+                continue
+            if val > 0:
+                price = val
+                break
+    if price is None:
+        return None
+
+    return {
+        "symbol": symbol,
+        "price": price,
+        "source": "kis-ws",
+    }
+
+
 def _decode_payload_to_dict(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, dict):
         return payload
@@ -46,8 +93,11 @@ def _decode_payload_to_dict(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, str):
         try:
             decoded = json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise ValueError("payload must be valid JSON string or dict") from exc
+        except json.JSONDecodeError:
+            pipe_decoded = _decode_pipe_realtime_payload(payload)
+            if pipe_decoded is not None:
+                return pipe_decoded
+            raise ValueError("payload must be valid JSON string or dict")
         if not isinstance(decoded, dict):
             raise ValueError("decoded payload must be an object")
         return decoded
