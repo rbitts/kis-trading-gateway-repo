@@ -75,6 +75,15 @@ class TestKisWsParser(unittest.TestCase):
         self.assertEqual(message["body"]["input"]["tr_id"], "H0STCNT0")
         self.assertEqual(message["body"]["input"]["tr_key"], "005930")
 
+    def test_parse_message_supports_pipe_realtime_frame(self):
+        payload = "0|H0STCNT0|001|005930^71300^1.49^2233445566"
+
+        parsed = parse_message(payload)
+
+        self.assertEqual(parsed["symbol"], "005930")
+        self.assertEqual(parsed["price"], 71300.0)
+        self.assertEqual(parsed["source"], "kis-ws")
+
     def test_parse_message_raises_for_invalid_payload(self):
         with self.assertRaises(ValueError):
             parse_message("not-json")
