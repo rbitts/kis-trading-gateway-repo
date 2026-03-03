@@ -60,6 +60,27 @@ class _FakeWebSocketAppWithAck(_FakeWebSocketApp):
             )
 
 
+class _FakeWebSocketAppWithWrappedBytesAndInvalid(_FakeWebSocketApp):
+    def run_forever(self):
+        if self.on_open is not None:
+            self.on_open(self)
+        if self.on_message is not None:
+            wrapped = {
+                "payload": {
+                    "body": {
+                        "output": {
+                            "mksc_shrn_iscd": "005930",
+                            "stck_prpr": "71300",
+                            "prdy_ctrt": "1.49",
+                            "acml_tr_pbmn": "2233445566",
+                        }
+                    }
+                }
+            }
+            self.on_message(self, json.dumps(wrapped).encode("utf-8"))
+            self.on_message(self, b"not-json")
+
+
 class TestKisWsLiveClient(unittest.TestCase):
     def test_connect_subscribe_and_ingest_callback_flow(self):
         approval_client = MagicMock()
@@ -106,6 +127,23 @@ class TestKisWsLiveClient(unittest.TestCase):
         client.connect_and_subscribe(symbols=["005930"], run_forever=True)
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]["symbol"], "005930")
+
+    def test_wrapped_bytes_payload_is_accepted_and_invalid_bytes_skipped(self):
+        approval_client = MagicMock()
+        approval_client.issue_approval_key.return_value = "approval-123"
+
+        received = []
+        client = KisWsClient(
+            on_message=lambda quote: received.append(quote),
+            approval_key_client=approval_client,
+            env="mock",
+            websocket_app_factory=_FakeWebSocketAppWithWrappedBytesAndInvalid,
+        )
+
+        client.connect_and_subscribe(symbols=["005930"], run_forever=True)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["symbol"], "005930")
+        self.assertEqual(received[0]["price"], 71300.0)
 
 
 if __name__ == "__main__":

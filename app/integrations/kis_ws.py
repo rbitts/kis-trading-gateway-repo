@@ -24,10 +24,25 @@ def _to_float_default(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def parse_message(payload: dict | str) -> Dict[str, Any]:
-    """Parse raw KIS WS payload into quote snapshot-compatible dict."""
-    raw: Dict[str, Any]
+def _payload_hint(payload: Any) -> str:
+    if isinstance(payload, dict):
+        keys = list(payload.keys())[:5]
+        return f"type=dict keys={keys}"
+    if isinstance(payload, str):
+        return f"type=str len={len(payload)}"
+    if isinstance(payload, (bytes, bytearray)):
+        return f"type={type(payload).__name__} len={len(payload)}"
+    return f"type={type(payload).__name__}"
 
+
+def _decode_payload_to_dict(payload: Any) -> Dict[str, Any]:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, (bytes, bytearray)):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("payload bytes must be utf-8 encoded") from exc
     if isinstance(payload, str):
         try:
             decoded = json.loads(payload)
@@ -35,11 +50,22 @@ def parse_message(payload: dict | str) -> Dict[str, Any]:
             raise ValueError("payload must be valid JSON string or dict") from exc
         if not isinstance(decoded, dict):
             raise ValueError("decoded payload must be an object")
-        raw = decoded
-    elif isinstance(payload, dict):
-        raw = payload
-    else:
-        raise ValueError("payload must be dict or JSON string")
+        return decoded
+    raise ValueError("payload must be dict, JSON string, or utf-8 JSON bytes")
+
+
+def parse_message(payload: dict | str | bytes | bytearray) -> Dict[str, Any]:
+    """Parse raw KIS WS payload into quote snapshot-compatible dict."""
+    raw = _decode_payload_to_dict(payload)
+
+    for key in ("payload", "data", "message"):
+        nested = raw.get(key) if isinstance(raw, dict) else None
+        if isinstance(nested, dict):
+            raw = nested
+            break
+        if isinstance(nested, (str, bytes, bytearray)):
+            raw = _decode_payload_to_dict(nested)
+            break
 
     body = raw.get("body")
     nested_output = body.get("output") if isinstance(body, dict) else None
@@ -186,7 +212,7 @@ class KisWsClient:
             },
         }
 
-    def handle_raw_message(self, payload: dict | str) -> Dict[str, Any]:
+    def handle_raw_message(self, payload: dict | str | bytes | bytearray) -> Dict[str, Any]:
         quote = parse_message(payload)
         if self._on_message is not None:
             self._on_message(quote)
@@ -214,7 +240,7 @@ class KisWsClient:
                 self.handle_raw_message(raw_message)
             except ValueError as exc:
                 # KIS ACK/heartbeat/control messages may not include quote fields.
-                print(f"[WS][ws_message_skip] reason={exc}", flush=True)
+                print(f"[WS][ws_message_skip] reason={exc} hint={_payload_hint(raw_message)}", flush=True)
 
         def _on_error(_: Any, error: Any) -> None:
             self.last_error = str(error)
